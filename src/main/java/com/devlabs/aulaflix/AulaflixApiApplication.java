@@ -1,4 +1,4 @@
-package com.aulaflixapi;
+package com.devlabs.aulaflix;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
