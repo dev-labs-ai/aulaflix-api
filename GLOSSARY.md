@@ -11,12 +11,17 @@ learning area where Students watch them.
 Someone browsing AulaFlix without being signed in.
 _Avoid_: guest, anonymous user
 
+**Account**:
+The email and password someone signs in with; it belongs to either a Student or an Admin, never both.
+_Avoid_: user, login, profile
+
 **Student**:
-A person with an AulaFlix account (UI: "aluno").
+A person with an Account who buys and watches Courses (UI: "aluno").
 _Avoid_: user, customer, member
 
 **Admin**:
-An account allowed to author the catalog and perform back-office operations such as Refunds and manual Enrollments.
+An Account that authors the catalog and performs back-office operations such as Refunds and manual Enrollments; it
+is never a Student.
 _Avoid_: instructor, teacher, staff
 
 ### Catalog
