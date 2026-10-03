@@ -58,12 +58,17 @@ _Avoid_: preview, sample, trailer
 
 ### Access
 
+**Order**:
+A Student's request to buy one Course by one payment method, at the price fixed when it was placed (UI: "pedido").
+_Avoid_: purchase, sale, transaction
+
 **Enrollment**:
-A Student's right to watch a Course, granted when a payment for it is confirmed or manually by an Admin.
+A Student's right to watch a Course, granted when an Order for it is paid or manually by an Admin.
 _Avoid_: ownership, subscription, purchase
 
 **Refund**:
-The reversal of a Course payment within the 7-day withdrawal period, which also ends the Enrollment it granted.
+The reversal of an Order's payment at the Student's request, as the 7-day guarantee promises, which also ends the
+Enrollment it granted.
 _Avoid_: chargeback, cancellation
 
 **Waitlist**:
