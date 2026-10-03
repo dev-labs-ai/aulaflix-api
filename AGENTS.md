@@ -24,3 +24,27 @@ changing authentication/authorization logic, or when asked for one — not after
 Unlike `tdd-gate`, this one hunts for exploitable vulnerabilities across
 the whole input surface, which is expensive; it is a periodic audit, not a per-change gate.
 <!-- /agent:security-auditor:agents-md -->
+
+## Coding standards
+
+This repo's coding standards are the project skills listed below, in `.agents/skills/` (symlinked into
+`.claude/skills/`). When writing or reviewing code — including the Standards axis of `/spec-review` — the
+standards sources are `.agents/skills/<skill>/SKILL.md` plus any files under that skill's `references/`, for every
+skill below whose scope the change touches.
+
+| Skill                   | Applies when the change touches                                                              |
+|-------------------------|----------------------------------------------------------------------------------------------|
+| `java-conventions`      | Any Java code: record DTOs, Lombok ban, explicit mapping, constructor DI, layering, ArchUnit |
+| `java-spring-standards` | Spring Boot code: entities, repositories, services, controllers, ProblemDetail, config       |
+| `jpa-conventions`       | `@Entity` classes: sequence IDs, enum/fetch mapping, equals/hashCode                         |
+| `performance`           | Lazy associations, loops over collections, blocking calls, connection pool, indexes          |
+| `rest-api-design`       | Endpoint URIs, HTTP methods, status codes, error bodies, pagination/filtering                |
+| `api-security`          | Authn/authz, input validation, CORS/response headers, rate limiting, error/secret hygiene    |
+| `api-documentation`     | OpenAPI annotations, exposure of the spec/Swagger UI endpoint                                |
+| `observability-logging` | Log statements and levels, exception logging, structured output, trace IDs                   |
+| `flyway-migrations`     | Flyway migration scripts                                                                     |
+| `pragmatic-tdd`         | Tests: workflow and non-negotiables (read before `pragmatic-tdd-spring`)                     |
+| `pragmatic-tdd-spring`  | Tests: `@SpringBootTest`, MockMvcTester, Testcontainers, PIT, jetCheck                       |
+| `container-images`      | `Dockerfile` and image-build configuration                                                   |
+| `security-scanning`     | Build/CI scanner setup: Dependency-Check, SpotBugs/Semgrep, gitleaks, Trivy                  |
+| `conventional-commits`  | Commit messages and PR titles                                                                |
