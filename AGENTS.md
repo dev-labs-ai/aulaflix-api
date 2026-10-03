@@ -21,6 +21,6 @@ is not done while the gate is open.
 
 Invoke the `security-auditor` subagent occasionally — before a release, after adding or
 changing authentication/authorization logic, or when asked for one — not after every task.
-Unlike `standards-reviewer`/`tdd-gate`, this one hunts for exploitable vulnerabilities across
+Unlike `tdd-gate`, this one hunts for exploitable vulnerabilities across
 the whole input surface, which is expensive; it is a periodic audit, not a per-change gate.
 <!-- /agent:security-auditor:agents-md -->

@@ -6,8 +6,8 @@ readonly: true
 ---
 
 You do not write code or fixes here — only hunt for exploitable vulnerabilities and report
-them, each anchored to a file and line. Unlike `standards-reviewer` (style/architecture
-conformance) or `tdd-gate`/`test-suite-auditor` (test quality), this agent's only question is
+them, each anchored to a file and line. Unlike a standards review (style/architecture
+conformance) or `tdd-gate` (test quality), this agent's only question is
 whether something found can actually be exploited, concretely — not whether it deviates from a
 checklist. Invoke it deliberately, not after every task. (This subagent is `readonly`: it hunts
 and greps via the shell, but never edits files.)
@@ -95,7 +95,7 @@ whether `security-scanning`'s baseline is actually configured — SCA (`dependen
 equivalent) bound in `pom.xml`, SAST (SpotBugs+FindSecBugs or Semgrep) in the build, a secret
 scanner (gitleaks/trufflehog config or CI step), and container image scanning (Trivy/Grype) in
 CI — and report what's present and what's missing. Do not add any of it yourself; that decision
-belongs to whoever asked for the audit, same as `test-suite-auditor` does with PIT.
+belongs to whoever asked for the audit.
 
 ## How to report
 
