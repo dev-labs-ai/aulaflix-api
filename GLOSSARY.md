@@ -72,5 +72,26 @@ Enrollment it granted.
 _Avoid_: chargeback, cancellation
 
 **Waitlist**:
-The people, Students or Visitors known only by email, who asked to be told when a coming-soon Course goes on sale.
+The people, Students or Visitors known only by email, who asked to be told when a coming-soon Course goes on sale;
+it is used up when that Course goes on sale.
 _Avoid_: wishlist, pre-order, interest list
+
+### Learning
+
+**Progress**:
+The published Lessons of a Course that a Student has marked as completed (UI: "aulas concluídas"); it belongs to the
+Student rather than to an Enrollment, so it outlives one.
+_Avoid_: completion, watch history
+
+**Caught up**:
+A Student's standing in a Course when every published Lesson is completed but some Lessons are still "Em breve"
+(UI: "aguardando novas aulas").
+_Avoid_: up to date, done
+
+**Finished**:
+A Student's standing in a Course when every one of its Lessons is completed (UI: "finalizado").
+_Avoid_: completed course, done
+
+**Resume lesson**:
+The Lesson a Student is taken to when they continue a Course (UI: "Continuar de onde parou").
+_Avoid_: last lesson, current lesson
