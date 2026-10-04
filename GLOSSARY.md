@@ -56,6 +56,11 @@ _Avoid_: class, episode, video
 The one published Lesson of an on-sale Course that anyone, Visitors included, may watch.
 _Avoid_: preview, sample, trailer
 
+**Syllabus**:
+The ordered Modules and Lessons of an on-sale Course as everyone sees them, "Em breve" Lessons included (UI:
+"Ementa"); it takes over from the Planned topics once the Course goes on sale.
+_Avoid_: curriculum, outline, course content
+
 ### Access
 
 **Order**:
