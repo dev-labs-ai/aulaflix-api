@@ -40,6 +40,13 @@ document at `/v3/api-docs/admin`. Sign in with `POST /v1/admin/sessions` `{ "ema
 the returned `token` into "Authorize". A session ends after 30 minutes without use, 8 hours after sign-in at most, or
 with `DELETE /v1/admin/sessions/current`.
 
+## Authoring a Course
+
+A Course starts as a Draft that only Admins see: `POST /v1/admin/courses` `{ "slug": …, "title": … }`. Read its
+document with `GET /v1/admin/courses/{courseId}`, edit the JSON, and `PUT` it back whole; a field left out is
+cleared, and what only reads show (`id`, `status`, `readiness`) may stay in the body. `readiness` lists, for each
+state the Course can move to next, the fields still missing. `DELETE` removes a Draft, and only a Draft.
+
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL runs in Testcontainers. Mutation testing runs with

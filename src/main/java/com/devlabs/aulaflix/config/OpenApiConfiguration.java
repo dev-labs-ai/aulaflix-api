@@ -39,7 +39,8 @@ public class OpenApiConfiguration {
 
     /**
      * The refusals every endpoint shares, declared once. A token that is sent must be valid even where no session is
-     * needed, so any endpoint can answer 401; only those that need a session can answer 403.
+     * needed, so any endpoint can answer 401; only those that need a session can answer 403. Every refusal is a
+     * ProblemDetail, so an endpoint's own refusals need only name their problem.
      */
     private static OpenApiCustomizer sharedRefusals() {
         return openApi -> openApi.getPaths().values().stream()
@@ -55,12 +56,26 @@ public class OpenApiConfiguration {
             if (operation.getSecurity() != null && !operation.getSecurity().isEmpty()) {
                 operation.getResponses().addApiResponse("403", problem("A session of another role"));
             }
+            operation.getResponses().forEach((status, response) -> {
+                if (status.startsWith("4") && !isProblem(response)) {
+                    response.content(problemContent());
+                }
+            });
         };
     }
 
+    /** springdoc gives a refusal declared without content the method's own return type, as if it were a success. */
+    private static boolean isProblem(ApiResponse response) {
+        return response.getContent() != null && response.getContent()
+                .containsKey(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+    }
+
     private static ApiResponse problem(String description) {
-        return new ApiResponse().description(description).content(new Content().addMediaType(
-                org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                new MediaType().schema(new Schema<>().$ref("#/components/schemas/ProblemDetail"))));
+        return new ApiResponse().description(description).content(problemContent());
+    }
+
+    private static Content problemContent() {
+        return new Content().addMediaType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                new MediaType().schema(new Schema<>().$ref("#/components/schemas/ProblemDetail")));
     }
 }

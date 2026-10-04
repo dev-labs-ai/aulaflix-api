@@ -7,6 +7,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.BinaryOperator;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -27,6 +31,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.exc.InputCoercionException;
+import tools.jackson.databind.exc.InvalidFormatException;
 
 /**
  * The Problems module: every refusal, in every environment, is a ProblemDetail whose {@code type} is
@@ -36,6 +43,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class ProblemHandler extends ResponseEntityExceptionHandler {
 
     private static final String TYPE_PREFIX = "https://aulaflix.com.br/problems/";
+
+    private static final List<String> FIXING_ORDER =
+            List.of("required", "too-short", "too-long", "invalid-email", "invalid-format", "out-of-range");
 
     private static final Logger log = LoggerFactory.getLogger(ProblemHandler.class);
 
@@ -63,6 +73,31 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 request, retryAfter(refusal.retryAfter()), Map.of());
     }
 
+    @ExceptionHandler(CourseNotFoundException.class)
+    ResponseEntity<Object> courseNotFound(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "course-not-found", "Course not found",
+                "No Course has this id."), request);
+    }
+
+    @ExceptionHandler(SlugTakenException.class)
+    ResponseEntity<Object> slugTaken(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "slug-taken", "Slug taken",
+                "Another Course already has this slug."), request);
+    }
+
+    @ExceptionHandler(CourseNotDraftException.class)
+    ResponseEntity<Object> courseNotDraft(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "course-not-draft", "Course not a Draft",
+                "Only a Draft Course can be deleted."), request);
+    }
+
+    @ExceptionHandler(PriceNotDivisibleByInstallmentsException.class)
+    ResponseEntity<Object> priceNotDivisibleByInstallments(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "price-not-divisible-by-installments",
+                "Price not divisible by installments",
+                "priceCents must be divisible by maxInstallments, so that every installment is exact."), request);
+    }
+
     /** Raised by the session token filter, and by the chain for a request that needs a session and has none. */
     @ExceptionHandler(AuthenticationException.class)
     ResponseEntity<Object> unauthenticated(HttpServletRequest request) {
@@ -87,23 +122,45 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.internalServerError().body(problem);
     }
 
-    /** Bean validation on a request body; each violation's message is the field's code. */
+    /**
+     * Bean validation on a request body; each violation's message is the field's code. A field that breaks several
+     * constraints, like a blank slug that also misses the slug's pattern, gets only the code to fix first.
+     */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException failure,
                                                                   HttpHeaders headers, HttpStatusCode status,
                                                                   WebRequest request) {
-        List<FieldViolation> violations = failure.getBindingResult().getFieldErrors().stream()
+        Map<String, FieldViolation> firstToFixByField = failure.getBindingResult().getFieldErrors().stream()
                 .map(error -> new FieldViolation(error.getField(), error.getDefaultMessage()))
-                .toList();
-        return invalidRequest(violations, servletRequest(request));
+                .collect(Collectors.toMap(FieldViolation::field, Function.identity(),
+                        BinaryOperator.minBy(Comparator.comparingInt(ProblemHandler::fixingOrder))));
+        return invalidRequest(List.copyOf(firstToFixByField.values()), servletRequest(request));
     }
 
+    /**
+     * JSON that is not the shape the endpoint expects answers without {@code errors}. A field whose value has the
+     * right JSON type but cannot be read, like an unknown code, a fractional number of cents or a number too large
+     * for the field, is named instead.
+     */
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException failure,
                                                                   HttpHeaders headers, HttpStatusCode status,
                                                                   WebRequest request) {
-        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-request", "Invalid request",
-                "The body is not the JSON this endpoint expects."), servletRequest(request));
+        return unreadableField(failure.getCause())
+                .map(violation -> invalidRequest(List.of(violation), servletRequest(request)))
+                .orElseGet(() -> refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-request", "Invalid request",
+                        "The body is not the JSON this endpoint expects."), servletRequest(request)));
+    }
+
+    private static Optional<FieldViolation> unreadableField(Throwable cause) {
+        if (!(cause instanceof JacksonException failure) || failure.getPath().isEmpty()) {
+            return Optional.empty();
+        }
+        return switch (failure) {
+            case InvalidFormatException invalid -> Optional.of(new FieldViolation(fieldOf(invalid), "invalid-format"));
+            case InputCoercionException tooLarge -> Optional.of(new FieldViolation(fieldOf(tooLarge), "out-of-range"));
+            default -> Optional.empty();
+        };
     }
 
     /**
@@ -153,6 +210,25 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
         problem.setType(URI.create(TYPE_PREFIX + name));
         problem.setTitle(title);
         problem.setProperty("timestamp", clock.instant().toString());
+    }
+
+    /** Named the way bean validation names a field: {@code faq[0].question}. */
+    private static String fieldOf(JacksonException failure) {
+        StringBuilder field = new StringBuilder();
+        for (JacksonException.Reference reference : failure.getPath()) {
+            if (reference.getPropertyName() == null) {
+                field.append('[').append(reference.getIndex()).append(']');
+            } else {
+                field.append(field.isEmpty() ? "" : ".").append(reference.getPropertyName());
+            }
+        }
+        return field.toString();
+    }
+
+    /** A missing value has no length to check, and a value of the wrong length is fixed before its format. */
+    private static int fixingOrder(FieldViolation violation) {
+        int order = FIXING_ORDER.indexOf(violation.code());
+        return order < 0 ? FIXING_ORDER.size() : order;
     }
 
     /** Whole seconds, rounded up, so a client that waits that long is never refused again for the same reason. */

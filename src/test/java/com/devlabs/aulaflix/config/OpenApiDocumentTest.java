@@ -2,6 +2,8 @@ package com.devlabs.aulaflix.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -61,6 +63,86 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .extractingPath("$.paths['/v1/admin/sessions'].post.responses['429'].content")
                 .asMap()
                 .containsOnlyKeys("application/problem+json");
+    }
+
+    @Test
+    void documentsEveryStatusEachCourseEndpointCanAnswer() {
+        assertResponses("/v1/admin/courses", "post", "201", "400", "401", "403", "409", "500");
+        assertResponses("/v1/admin/courses", "get", "200", "401", "403", "500");
+        assertResponses("/v1/admin/courses/{courseId}", "get", "200", "401", "403", "404", "500");
+        assertResponses("/v1/admin/courses/{courseId}", "put", "200", "400", "401", "403", "404", "409", "500");
+        assertResponses("/v1/admin/courses/{courseId}", "delete", "204", "401", "403", "404", "409", "500");
+    }
+
+    @Test
+    void documentsTheCourseEndpointsAsAdminOnly() {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/admin/courses": {
+                      "post": {
+                        "tags": ["Admin courses"],
+                        "security": [{"bearer": []}],
+                        "responses": {
+                          "201": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminCourse"}}}
+                          }
+                        }
+                      },
+                      "get": {"tags": ["Admin courses"], "security": [{"bearer": []}]}
+                    },
+                    "/v1/admin/courses/{courseId}": {
+                      "get": {"tags": ["Admin courses"], "security": [{"bearer": []}]},
+                      "put": {"tags": ["Admin courses"], "security": [{"bearer": []}]},
+                      "delete": {"tags": ["Admin courses"], "security": [{"bearer": []}]}
+                    }
+                  }
+                }""");
+    }
+
+    @Test
+    void listsTheCodesEachCourseFieldTakes() {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "components": {
+                    "schemas": {
+                      "CourseDocument": {
+                        "properties": {
+                          "area": {
+                            "enum": ["BACKEND", "FRONTEND", "DATABASES", "DEVOPS", "AI", "QUALITY", "ARCHITECTURE"]
+                          },
+                          "icon": {
+                            "enum": ["SERVER", "APP_WINDOW", "DATABASE", "CONTAINER", "BOT", "FLASK_CONICAL", "BLOCKS"]
+                          },
+                          "tone": {"enum": ["CORAL", "YELLOW", "SAGE"]},
+                          "maxInstallments": {"minimum": 1, "maximum": 12}
+                        }
+                      },
+                      "AdminCourse": {
+                        "properties": {"status": {"enum": ["DRAFT", "COMING_SOON", "ON_SALE"]}}
+                      }
+                    }
+                  }
+                }""");
+    }
+
+    @Test
+    void documentsEveryCourseRefusalAsAProblemDetail() {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .hasPath("$.components.schemas.ProblemDetail.properties.type");
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths['/v1/admin/courses/{courseId}'].put.responses[*].content")
+                .asArray()
+                .hasSize(7)
+                .filteredOn(content -> ((Map<?, ?>) content).containsKey("application/problem+json"))
+                .hasSize(6);
+    }
+
+    private void assertResponses(String path, String method, String... statuses) {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths['%s'].%s.responses".formatted(path, method))
+                .asMap()
+                .containsOnlyKeys(statuses);
     }
 
     @Test

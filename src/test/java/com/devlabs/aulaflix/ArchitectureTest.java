@@ -1,5 +1,6 @@
 package com.devlabs.aulaflix;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -40,6 +41,14 @@ class ArchitectureTest {
             .whereLayer("Service").mayOnlyBeAccessedByLayers("Controller", "Command", "Config")
             .whereLayer("Repository").mayOnlyBeAccessedByLayers("Service")
             .whereLayer("Entity").mayOnlyBeAccessedByLayers("Service", "Repository");
+
+    /** The codes the DTOs and the entities share, which is why they sit outside {@code domain.entity}. */
+    @ArchTest
+    static final ArchRule sharedCodesAreBareEnums = classes()
+            .that().resideInAPackage("com.devlabs.aulaflix.domain")
+            .and().doNotHaveSimpleName("package-info")
+            .should().beEnums()
+            .andShould().onlyDependOnClassesThat().resideInAnyPackage("java..", "com.devlabs.aulaflix.domain");
 
     @ArchTest
     static final ArchRule noCyclesBetweenPackages =
