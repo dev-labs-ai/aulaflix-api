@@ -1,0 +1,91 @@
+package com.devlabs.aulaflix.domain.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.SequenceGenerator;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "lessons")
+public class LessonEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_lesson")
+    @SequenceGenerator(name = "seq_lesson", sequenceName = "seq_lesson", allocationSize = 50)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "course_id", nullable = false, updatable = false)
+    private CourseEntity course;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "module_id", nullable = false)
+    private ModuleEntity module;
+
+    @Column(nullable = false)
+    private int position;
+
+    @Column(nullable = false, length = 120)
+    private String title;
+
+    @Column(nullable = false, length = 80)
+    private String slug;
+
+    protected LessonEntity() {
+    }
+
+    /** A new Lesson at the given position of its Module, in the Module's Course. */
+    public LessonEntity(ModuleEntity module, int position, String title, String slug) {
+        this.course = module.getCourse();
+        this.module = module;
+        this.position = position;
+        this.title = title;
+        this.slug = slug;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public CourseEntity getCourse() {
+        return course;
+    }
+
+    public ModuleEntity getModule() {
+        return module;
+    }
+
+    public void setModule(ModuleEntity module) {
+        this.module = module;
+    }
+
+    public int getPosition() {
+        return position;
+    }
+
+    public void setPosition(int position) {
+        this.position = position;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public String getSlug() {
+        return slug;
+    }
+
+    public void setSlug(String slug) {
+        this.slug = slug;
+    }
+}

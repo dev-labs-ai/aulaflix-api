@@ -45,7 +45,20 @@ with `DELETE /v1/admin/sessions/current`.
 A Course starts as a Draft that only Admins see: `POST /v1/admin/courses` `{ "slug": …, "title": … }`. Read its
 document with `GET /v1/admin/courses/{courseId}`, edit the JSON, and `PUT` it back whole; a field left out is
 cleared, and what only reads show (`id`, `status`, `readiness`) may stay in the body. `readiness` lists, for each
-state the Course can move to next, the fields still missing. `DELETE` removes a Draft, and only a Draft.
+state the Course can move to next, the fields still missing. `DELETE` removes a Draft, and only a Draft, with its
+Modules and Lessons.
+
+## Shaping a Course's outline
+
+The outline is a Course's Modules in order, each with its Lessons in order; a Lesson's number follows from it.
+`POST /v1/admin/courses/{courseId}/modules` `{ "title": … }` appends a Module, and
+`POST /v1/admin/modules/{moduleId}/lessons` `{ "title": …, "slug": … }` appends an unpublished Lesson to a Module. A
+Lesson's slug is unique within its Course. `PUT /v1/admin/modules/{moduleId}` renames a Module and
+`PUT /v1/admin/lessons/{lessonId}` edits a Lesson; `DELETE` at either address removes an empty Module or a Lesson.
+
+`GET /v1/admin/courses/{courseId}/outline` reads the order as `[{ "moduleId": …, "lessonIds": [ … ] }, …]`. Edit it
+and `PUT` it back to reorder the Modules and move Lessons between them in one change. It must name exactly the
+Course's current Modules and Lessons, each once, or nothing changes.
 
 ## Tests
 

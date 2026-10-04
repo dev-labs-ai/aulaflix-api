@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -25,11 +26,14 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.util.StringUtils;
+import org.springframework.validation.method.ParameterErrors;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.exc.InputCoercionException;
@@ -79,6 +83,18 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "No Course has this id."), request);
     }
 
+    @ExceptionHandler(ModuleNotFoundException.class)
+    ResponseEntity<Object> moduleNotFound(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "module-not-found", "Module not found",
+                "No Module has this id."), request);
+    }
+
+    @ExceptionHandler(LessonNotFoundException.class)
+    ResponseEntity<Object> lessonNotFound(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "lesson-not-found", "Lesson not found",
+                "No Lesson has this id."), request);
+    }
+
     @ExceptionHandler(SlugTakenException.class)
     ResponseEntity<Object> slugTaken(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "slug-taken", "Slug taken",
@@ -89,6 +105,24 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<Object> courseNotDraft(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "course-not-draft", "Course not a Draft",
                 "Only a Draft Course can be deleted."), request);
+    }
+
+    @ExceptionHandler(ModuleNotEmptyException.class)
+    ResponseEntity<Object> moduleNotEmpty(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "module-not-empty", "Module not empty",
+                "Only a Module without Lessons can be deleted."), request);
+    }
+
+    @ExceptionHandler(OutlineMismatchException.class)
+    ResponseEntity<Object> outlineMismatch(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "outline-mismatch", "Outline mismatch",
+                "The outline must name every current Module and Lesson of the Course, each once."), request);
+    }
+
+    @ExceptionHandler(LessonSlugTakenException.class)
+    ResponseEntity<Object> lessonSlugTaken(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "lesson-slug-taken", "Lesson slug taken",
+                "Another Lesson of this Course already has this slug."), request);
     }
 
     @ExceptionHandler(PriceNotDivisibleByInstallmentsException.class)
@@ -130,11 +164,40 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException failure,
                                                                   HttpHeaders headers, HttpStatusCode status,
                                                                   WebRequest request) {
-        Map<String, FieldViolation> firstToFixByField = failure.getBindingResult().getFieldErrors().stream()
-                .map(error -> new FieldViolation(error.getField(), error.getDefaultMessage()))
-                .collect(Collectors.toMap(FieldViolation::field, Function.identity(),
-                        BinaryOperator.minBy(Comparator.comparingInt(ProblemHandler::fixingOrder))));
-        return invalidRequest(List.copyOf(firstToFixByField.values()), servletRequest(request));
+        return invalidRequest(firstToFixByField(failure.getBindingResult().getFieldErrors().stream()
+                        .map(error -> new FieldViolation(error.getField(), error.getDefaultMessage()))),
+                servletRequest(request));
+    }
+
+    /**
+     * Method validation, which Spring MVC runs in place of the binder's once a parameter has constraints of its own,
+     * as a request body that is a list has on its elements. A list element is named the way Jackson names it, from its
+     * index: {@code [1].moduleId}, or {@code [1]} for a null element. Any other parameter is named as a body field, or
+     * after the parameter.
+     */
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException failure,
+                                                                            HttpHeaders headers,
+                                                                            HttpStatusCode status,
+                                                                            WebRequest request) {
+        return invalidRequest(firstToFixByField(failure.getParameterValidationResults().stream()
+                .flatMap(ProblemHandler::fieldViolations)), servletRequest(request));
+    }
+
+    private static Stream<FieldViolation> fieldViolations(ParameterValidationResult result) {
+        Integer index = result.getContainerIndex();
+        if (result instanceof ParameterErrors errors) {
+            return errors.getFieldErrors().stream().map(error -> new FieldViolation(
+                    index == null ? error.getField() : "[%d].%s".formatted(index, error.getField()),
+                    error.getDefaultMessage()));
+        }
+        String field = index == null ? result.getMethodParameter().getParameterName() : "[%d]".formatted(index);
+        return result.getResolvableErrors().stream().map(error -> new FieldViolation(field, error.getDefaultMessage()));
+    }
+
+    private static List<FieldViolation> firstToFixByField(Stream<FieldViolation> violations) {
+        return List.copyOf(violations.collect(Collectors.toMap(FieldViolation::field, Function.identity(),
+                BinaryOperator.minBy(Comparator.comparingInt(ProblemHandler::fixingOrder)))).values());
     }
 
     /**
