@@ -28,6 +28,11 @@
     </scm>
     <properties>
         <java.version>25</java.version>
+        <!-- PIT reads these user properties, so -DtargetClasses=… -DtargetTests=… narrow a run to one slice. -->
+        <targetClasses>
+            com.devlabs.aulaflix.command.*,com.devlabs.aulaflix.config.*,com.devlabs.aulaflix.exception.*,com.devlabs.aulaflix.service.*
+        </targetClasses>
+        <targetTests>com.devlabs.aulaflix.*</targetTests>
     </properties>
     <dependencies>
         <dependency>
@@ -99,19 +104,10 @@
                 <artifactId>pitest-maven</artifactId>
                 <version>1.30.0</version>
                 <configuration>
-                    <targetClasses>
-                        <param>com.devlabs.aulaflix.command.*</param>
-                        <param>com.devlabs.aulaflix.config.*</param>
-                        <param>com.devlabs.aulaflix.exception.*</param>
-                        <param>com.devlabs.aulaflix.service.*</param>
-                    </targetClasses>
                     <excludedClasses>
                         <!-- Wraps System.console(), which a test JVM never has; checked by hand under a terminal. -->
                         <param>com.devlabs.aulaflix.command.ConsoleTerminal</param>
                     </excludedClasses>
-                    <targetTests>
-                        <param>com.devlabs.aulaflix.*</param>
-                    </targetTests>
                 </configuration>
                 <dependencies>
                     <dependency>

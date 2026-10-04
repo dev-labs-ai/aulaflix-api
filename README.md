@@ -63,4 +63,10 @@ Course's current Modules and Lessons, each once, or nothing changes.
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL runs in Testcontainers. Mutation testing runs with
-`./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`, and its report lands in `target/pit-reports/`.
+`./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`, and its report lands in `target/pit-reports/`. It
+mutates the `command`, `config`, `exception` and `service` packages. To check one slice, name the classes it changed:
+
+```shell
+./mvnw test-compile org.pitest:pitest-maven:mutationCoverage \
+    -DtargetClasses=com.devlabs.aulaflix.service.OutlineService,com.devlabs.aulaflix.exception.ProblemHandler
+```
