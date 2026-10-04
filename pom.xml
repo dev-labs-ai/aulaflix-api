@@ -33,6 +33,8 @@
             com.devlabs.aulaflix.command.*,com.devlabs.aulaflix.config.*,com.devlabs.aulaflix.exception.*,com.devlabs.aulaflix.service.*
         </targetClasses>
         <targetTests>com.devlabs.aulaflix.*</targetTests>
+        <!-- One minion per mutated class, each booting the application and its own PostgreSQL: run four at once. -->
+        <threads>4</threads>
     </properties>
     <dependencies>
         <dependency>

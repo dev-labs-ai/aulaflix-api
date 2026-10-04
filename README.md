@@ -70,3 +70,6 @@ mutates the `command`, `config`, `exception` and `service` packages. To check on
 ./mvnw test-compile org.pitest:pitest-maven:mutationCoverage \
     -DtargetClasses=com.devlabs.aulaflix.service.OutlineService,com.devlabs.aulaflix.exception.ProblemHandler
 ```
+
+PIT tests each mutated class in a JVM of its own, which boots the application and its own PostgreSQL container, and
+runs four at once; `-Dthreads=` changes that.
