@@ -1,7 +1,6 @@
 package com.devlabs.aulaflix.service;
 
 import java.util.List;
-import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,9 +28,6 @@ import com.devlabs.aulaflix.repository.CourseRepository;
 public class CourseService {
 
     private static final Logger log = LoggerFactory.getLogger(CourseService.class);
-
-    /** Every id the sequence hands out, and nothing that would overflow a {@code long}. */
-    private static final Pattern ID_SHAPE = Pattern.compile("[1-9][0-9]{0,17}");
 
     private final CourseRepository repository;
 
@@ -88,10 +84,7 @@ public class CourseService {
 
     /** Takes the id as the path carries it, so that an id of any shape answers like an unknown one. */
     private CourseEntity find(String courseId) {
-        if (!ID_SHAPE.matcher(courseId).matches()) {
-            throw new CourseNotFoundException();
-        }
-        return repository.findById(Long.parseLong(courseId)).orElseThrow(CourseNotFoundException::new);
+        return PathIds.parse(courseId).flatMap(repository::findById).orElseThrow(CourseNotFoundException::new);
     }
 
     /** The installment is {@code priceCents / maxInstallments} with no remainder, once both are set. */
