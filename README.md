@@ -11,12 +11,14 @@ Secrets are files in `./secrets/` (git-ignored), each named after the property i
 ```shell
 mkdir -p secrets
 openssl rand -base64 24 > secrets/spring.datasource.password
+openssl rand -base64 32 > secrets/aulaflix.bff.key   # the web's server sends the same key
 
 docker compose up -d     # PostgreSQL on 127.0.0.1:5432
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
-The API applies its Flyway migrations when it starts.
+The API applies its Flyway migrations when it starts. It refuses to start without a BFF key of at least 32
+characters.
 
 ## Creating an Admin
 
@@ -48,6 +50,12 @@ cleared, and what only reads show (`id`, `status`, `readiness`) may stay in the 
 state the Course can move to next, the fields still missing. `DELETE` removes a Draft, and only a Draft, with its
 Modules and Lessons.
 
+`PUT /v1/admin/courses/{courseId}/status` `{ "status": "COMING_SOON" }` announces the Course: it shows in the public
+catalog from then on, with its Planned topics. A Course moves forward only, and sending the state it is already in
+changes nothing. A move it isn't ready for is refused with every missing field listed. Once it leaves Draft, its slug
+is frozen, it can no longer be deleted, and a `PUT` that would leave it without a field its state needs is refused
+the same way.
+
 ## Shaping a Course's outline
 
 The outline is a Course's Modules in order, each with its Lessons in order; a Lesson's number follows from it.
@@ -59,6 +67,18 @@ Lesson's slug is unique within its Course. `PUT /v1/admin/modules/{moduleId}` re
 `GET /v1/admin/courses/{courseId}/outline` reads the order as `[{ "moduleId": …, "lessonIds": [ … ] }, …]`. Edit it
 and `PUT` it back to reorder the Modules and move Lessons between them in one change. It must name exactly the
 Course's current Modules and Lessons, each once, or nothing changes.
+
+## The public catalog
+
+The BFF reads the catalog with `GET /v1/courses` and `GET /v1/courses/{slug}`, without a session. A Draft answers like
+a slug no Course has. Every request but the Admin's carries `AulaFlix-BFF-Key`, without which the API answers 403,
+and then `AulaFlix-Client-IP`, the browser's IP address, without which it answers 400. The OpenAPI document of these
+endpoints is at `/v3/api-docs/bff`.
+
+```shell
+curl -H "AulaFlix-BFF-Key: $(cat secrets/aulaflix.bff.key)" -H "AulaFlix-Client-IP: 127.0.0.1" \
+    http://localhost:8080/v1/courses
+```
 
 ## Tests
 

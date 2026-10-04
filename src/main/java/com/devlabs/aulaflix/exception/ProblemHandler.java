@@ -64,6 +64,12 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
         return invalidRequest(refusal.violations(), request);
     }
 
+    @ExceptionHandler(QueryParametersNotAllowedException.class)
+    ResponseEntity<Object> queryParametersNotAllowed(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-request", "Invalid request",
+                "This endpoint takes no query parameters."), request);
+    }
+
     @ExceptionHandler(InvalidCredentialsException.class)
     ResponseEntity<Object> invalidCredentials(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-credentials", "Invalid credentials",
@@ -80,7 +86,7 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(CourseNotFoundException.class)
     ResponseEntity<Object> courseNotFound(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.NOT_FOUND, "course-not-found", "Course not found",
-                "No Course has this id."), request);
+                "The Course does not exist."), request);
     }
 
     @ExceptionHandler(ModuleNotFoundException.class)
@@ -101,10 +107,30 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "Another Course already has this slug."), request);
     }
 
+    @ExceptionHandler(SlugFrozenException.class)
+    ResponseEntity<Object> slugFrozen(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "slug-frozen", "Slug frozen",
+                "The slug changes only while the Course is a Draft."), request);
+    }
+
     @ExceptionHandler(CourseNotDraftException.class)
     ResponseEntity<Object> courseNotDraft(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "course-not-draft", "Course not a Draft",
                 "Only a Draft Course can be deleted."), request);
+    }
+
+    @ExceptionHandler(CourseCannotMoveBackException.class)
+    ResponseEntity<Object> courseCannotMoveBack(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "course-cannot-move-back", "Course cannot move back",
+                "A Course moves forward only: from Draft to Coming soon to On sale."), request);
+    }
+
+    @ExceptionHandler(CourseRequirementsUnmetException.class)
+    ResponseEntity<Object> courseRequirementsUnmet(CourseRequirementsUnmetException refusal,
+                                                   HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "course-requirements-unmet", "Course requirements unmet",
+                        "A Course must have every field its state needs; missing lists those it lacks."),
+                request, new HttpHeaders(), Map.of("missing", refusal.missing()));
     }
 
     @ExceptionHandler(ModuleNotEmptyException.class)
@@ -139,6 +165,19 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
         headers.set(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
         return refuse(new Refusal(HttpStatus.UNAUTHORIZED, "unauthenticated", "Unauthenticated",
                 "This needs a valid session token, sent as Authorization: Bearer."), request, headers, Map.of());
+    }
+
+    /** Not a 401, which the BFF would read as an ended session. */
+    @ExceptionHandler(InvalidBffKeyException.class)
+    ResponseEntity<Object> invalidBffKey(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.FORBIDDEN, "invalid-bff-key", "Invalid BFF key",
+                "Only the AulaFlix web server calls this API, with its AulaFlix-BFF-Key."), request);
+    }
+
+    @ExceptionHandler(InvalidClientIpException.class)
+    ResponseEntity<Object> invalidClientIp(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-client-ip", "Invalid client IP",
+                "The BFF sends the browser's IP address as AulaFlix-Client-IP."), request);
     }
 
     /** A valid session of the wrong role, refused by the chain or by {@code @PreAuthorize}. */

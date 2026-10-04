@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -421,6 +422,240 @@ class AdminCourseControllerTest extends IntegrationTest {
     }
 
     @Test
+    void announcesADraftThatHasEverythingComingSoonNeedsAndAnswersARepeatWithoutChangingIt() {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        assertThat(put(id, fullDocument(slug))).hasStatusOk();
+        clock.set(Instant.parse("2026-10-04T15:00:00.123456789Z"));
+
+        MvcTestResult announced = changeStatus(id, "COMING_SOON");
+
+        assertThat(announced).hasStatusOk()
+                .hasContentType(MediaType.APPLICATION_JSON)
+                .bodyJson()
+                .doesNotHavePath("$.onSaleAt")
+                .doesNotHavePath("$.readiness.comingSoon")
+                .isLenientlyEqualTo("""
+                        {
+                          "id": %d,
+                          "slug": "%s",
+                          "status": "COMING_SOON",
+                          "comingSoonAt": "2026-10-04T15:00:00.123456Z",
+                          "readiness": {"onSale": ["freeLessonId"]}
+                        }""".formatted(id, slug));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(body(announced));
+
+        clock.set(Instant.parse("2026-10-04T16:00:00Z"));
+
+        assertThat(changeStatus(id, "COMING_SOON")).hasStatusOk().bodyJson().isStrictlyEqualTo(body(announced));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(body(announced));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("coursesShortOfTheirNextState")
+    void refusesAMoveTheCourseIsNotReadyForListingEveryMissingFieldAndChangesNothing(String description,
+                                                                                     String document,
+                                                                                     String status,
+                                                                                     List<String> missing) {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        assertThat(put(id, document.formatted(slug))).hasStatusOk();
+        String before = body(get(id));
+
+        MvcTestResult result = changeStatus(id, status);
+
+        assertThat(result).hasStatus(HttpStatus.CONFLICT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson().isStrictlyEqualTo("""
+                        {
+                          "type": "https://aulaflix.com.br/problems/course-requirements-unmet",
+                          "title": "Course requirements unmet",
+                          "status": 409,
+                          "detail": "A Course must have every field its state needs; missing lists those it lacks.",
+                          "instance": "/v1/admin/courses/%d/status",
+                          "timestamp": "%s",
+                          "missing": %s
+                        }""".formatted(id, clock.instant(), JsonPath.parse(missing).jsonString()));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    static Stream<Arguments> coursesShortOfTheirNextState() {
+        String bare = """
+                {"slug": "%s", "title": "Backend com Node.js"}""";
+        String withoutPlannedTopics = JsonPath.parse(fullDocument("%s")).set("$.plannedTopics", List.of()).jsonString();
+        return Stream.of(
+                Arguments.of("a bare Draft to Coming soon", bare, "COMING_SOON",
+                        List.of("summary", "area", "icon", "tone", "about", "learn", "audience", "plannedTopics")),
+                Arguments.of("a Draft without Planned topics to Coming soon", withoutPlannedTopics, "COMING_SOON",
+                        List.of("plannedTopics")),
+                Arguments.of("a bare Draft to On sale", bare, "ON_SALE",
+                        List.of("summary", "area", "icon", "tone", "about", "learn", "audience", "priceCents",
+                                "maxInstallments", "freeLessonId")),
+                Arguments.of("a Draft without a Free lesson to On sale", fullDocument("%s"), "ON_SALE",
+                        List.of("freeLessonId")));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "no status            | {}                          | required",
+            "null status          | {\"status\": null}          | required",
+            "unknown status       | {\"status\": \"RETIRED\"}     | invalid-format",
+            "status in lower case | {\"status\": \"coming_soon\"} | invalid-format"})
+    void refusesAMoveWithoutAKnownStatusAndChangesNothing(String description, String request, String code) {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        assertThat(put(id, fullDocument(slug))).hasStatusOk();
+        String before = body(get(id));
+
+        MvcTestResult result = mvc.put().uri("/v1/admin/courses/" + id + "/status")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
+                .exchange();
+
+        assertThat(result).hasStatus(HttpStatus.BAD_REQUEST)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson().isLenientlyEqualTo("""
+                        {
+                          "type": "https://aulaflix.com.br/problems/invalid-request",
+                          "instance": "/v1/admin/courses/%d/status",
+                          "errors": [{"field": "status", "code": "%s"}]
+                        }""".formatted(id, code));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void refusesToMoveAComingSoonCourseBackToDraftAndChangesNothing() {
+        long id = announcedCourse(newSlug());
+        String before = body(get(id));
+
+        assertCannotMoveBack(changeStatus(id, "DRAFT"), id);
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"COMING_SOON", "DRAFT"})
+    void refusesToMoveAnOnSaleCourseBackAndChangesNothing(String status) {
+        long id = new StoredCourses(jdbc).insertOnSale(newSlug(), Instant.parse("2026-09-15T09:30:00Z"));
+        String before = body(get(id));
+
+        assertCannotMoveBack(changeStatus(id, status), id);
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void answersADraftMovedToDraftWithoutChangingIt() {
+        long id = idOf(create(newSlug(), "Backend"));
+        String before = body(get(id));
+
+        assertThat(changeStatus(id, "DRAFT")).hasStatusOk().bodyJson().isStrictlyEqualTo(before);
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void answersAnOnSaleCourseMovedToOnSaleWithoutChangingIt() {
+        long id = new StoredCourses(jdbc).insertOnSale(newSlug(), Instant.parse("2026-09-15T09:30:00Z"));
+        String before = body(get(id));
+
+        assertThat(changeStatus(id, "ON_SALE")).hasStatusOk().bodyJson().isStrictlyEqualTo(before);
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void takesAnEditThatKeepsAComingSoonCourseFitForItsState() {
+        String slug = newSlug();
+        long id = announcedCourse(slug);
+        String document = JsonPath.parse(fullDocument(slug))
+                .set("$.title", "Backend com Node.js e TypeScript")
+                .set("$.plannedTopics", List.of("Fundamentos de APIs.", "Autenticação."))
+                .delete("$.faq")
+                .delete("$.priceCents")
+                .delete("$.pixDiscountPercent")
+                .delete("$.maxInstallments")
+                .jsonString();
+
+        assertThat(put(id, document)).hasStatusOk().bodyJson()
+                .doesNotHavePath("$.priceCents")
+                .isLenientlyEqualTo(document)
+                .isLenientlyEqualTo("""
+                        {"status": "COMING_SOON", "faq": []}""");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("editsLeavingComingSoonShort")
+    void refusesAnEditThatLeavesAComingSoonCourseShortOfItsStateListingWhatIsMissing(
+            String description, UnaryOperator<DocumentContext> edit, List<String> missing) {
+        String slug = newSlug();
+        long id = announcedCourse(slug);
+        String before = body(get(id));
+
+        MvcTestResult result = put(id, edit.apply(JsonPath.parse(fullDocument(slug))
+                .set("$.title", "Backend com Node.js e Java")).jsonString());
+
+        assertThat(result).hasStatus(HttpStatus.CONFLICT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson().isStrictlyEqualTo("""
+                        {
+                          "type": "https://aulaflix.com.br/problems/course-requirements-unmet",
+                          "title": "Course requirements unmet",
+                          "status": 409,
+                          "detail": "A Course must have every field its state needs; missing lists those it lacks.",
+                          "instance": "/v1/admin/courses/%d",
+                          "timestamp": "%s",
+                          "missing": %s
+                        }""".formatted(id, clock.instant(), JsonPath.parse(missing).jsonString()));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    static Stream<Arguments> editsLeavingComingSoonShort() {
+        return Stream.of(
+                Arguments.of("blank summary", edit(document -> document.set("$.summary", " ")), List.of("summary")),
+                Arguments.of("no area", edit(document -> document.delete("$.area")), List.of("area")),
+                Arguments.of("null icon", edit(document -> document.set("$.icon", null)), List.of("icon")),
+                Arguments.of("no tone", edit(document -> document.delete("$.tone")), List.of("tone")),
+                Arguments.of("no about", edit(document -> document.set("$.about", List.of())), List.of("about")),
+                Arguments.of("no learn", edit(document -> document.delete("$.learn")), List.of("learn")),
+                Arguments.of("no audience", edit(document -> document.set("$.audience", List.of())),
+                        List.of("audience")),
+                Arguments.of("no Planned topics", edit(document -> document.set("$.plannedTopics", List.of())),
+                        List.of("plannedTopics")),
+                Arguments.of("nothing but the slug and title", edit(document -> JsonPath.parse(Map.of(
+                                "slug", document.read("$.slug"), "title", document.read("$.title")))),
+                        List.of("summary", "area", "icon", "tone", "about", "learn", "audience", "plannedTopics")));
+    }
+
+    private static UnaryOperator<DocumentContext> edit(UnaryOperator<DocumentContext> edit) {
+        return edit;
+    }
+
+    @Test
+    void refusesToChangeTheSlugOfAComingSoonCourseAndChangesNothing() {
+        long id = announcedCourse(newSlug());
+        String before = body(get(id));
+
+        assertSlugFrozen(put(id, fullDocument(newSlug())), id);
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void refusesToChangeTheSlugOfAnOnSaleCourseAndChangesNothing() {
+        long id = new StoredCourses(jdbc).insertOnSale(newSlug(), Instant.parse("2026-09-15T09:30:00Z"));
+        String before = body(get(id));
+
+        assertSlugFrozen(put(id, fullDocument(newSlug())), id);
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void refusesToDeleteACourseOnceItWentComingSoon() {
+        long id = announcedCourse(newSlug());
+
+        assertThat(delete(id)).hasStatus(HttpStatus.CONFLICT)
+                .bodyJson().extractingPath("$.type").isEqualTo("https://aulaflix.com.br/problems/course-not-draft");
+        assertThat(get(id)).hasStatusOk().bodyJson().extractingPath("$.status").isEqualTo("COMING_SOON");
+    }
+
+    @Test
     void refusesAPriceNotDivisibleByTheMaximumInstallmentsAndChangesNothing() {
         String slug = newSlug();
         long id = idOf(create(slug, "Backend"));
@@ -587,6 +822,9 @@ class AdminCourseControllerTest extends IntegrationTest {
         assertCourseNotFound(mvc.put().uri(path).header(HttpHeaders.AUTHORIZATION, bearer)
                 .contentType(MediaType.APPLICATION_JSON).content(fullDocument(newSlug())).exchange(), path);
         assertCourseNotFound(mvc.delete().uri(path).header(HttpHeaders.AUTHORIZATION, bearer).exchange(), path);
+        assertCourseNotFound(mvc.put().uri(path + "/status").header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"status\": \"COMING_SOON\"}").exchange(),
+                path + "/status");
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -629,7 +867,8 @@ class AdminCourseControllerTest extends IntegrationTest {
                 Arguments.of(HttpMethod.GET, "/v1/admin/courses"),
                 Arguments.of(HttpMethod.GET, "/v1/admin/courses/{id}"),
                 Arguments.of(HttpMethod.PUT, "/v1/admin/courses/{id}"),
-                Arguments.of(HttpMethod.DELETE, "/v1/admin/courses/{id}"));
+                Arguments.of(HttpMethod.DELETE, "/v1/admin/courses/{id}"),
+                Arguments.of(HttpMethod.PUT, "/v1/admin/courses/{id}/status"));
     }
 
     private void assertSlugTaken(MvcTestResult result, String path) {
@@ -646,6 +885,34 @@ class AdminCourseControllerTest extends IntegrationTest {
                         }""".formatted(path, clock.instant()));
     }
 
+    private void assertSlugFrozen(MvcTestResult result, long id) {
+        assertThat(result).hasStatus(HttpStatus.CONFLICT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson().isStrictlyEqualTo("""
+                        {
+                          "type": "https://aulaflix.com.br/problems/slug-frozen",
+                          "title": "Slug frozen",
+                          "status": 409,
+                          "detail": "The slug changes only while the Course is a Draft.",
+                          "instance": "/v1/admin/courses/%d",
+                          "timestamp": "%s"
+                        }""".formatted(id, clock.instant()));
+    }
+
+    private void assertCannotMoveBack(MvcTestResult result, long id) {
+        assertThat(result).hasStatus(HttpStatus.CONFLICT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson().isStrictlyEqualTo("""
+                        {
+                          "type": "https://aulaflix.com.br/problems/course-cannot-move-back",
+                          "title": "Course cannot move back",
+                          "status": 409,
+                          "detail": "A Course moves forward only: from Draft to Coming soon to On sale.",
+                          "instance": "/v1/admin/courses/%d/status",
+                          "timestamp": "%s"
+                        }""".formatted(id, clock.instant()));
+    }
+
     private void assertCourseNotFound(MvcTestResult result, String path) {
         assertThat(result).hasStatus(HttpStatus.NOT_FOUND)
                 .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
@@ -654,7 +921,7 @@ class AdminCourseControllerTest extends IntegrationTest {
                           "type": "https://aulaflix.com.br/problems/course-not-found",
                           "title": "Course not found",
                           "status": 404,
-                          "detail": "No Course has this id.",
+                          "detail": "The Course does not exist.",
                           "instance": "%s",
                           "timestamp": "%s"
                         }""".formatted(path, clock.instant()));
@@ -681,6 +948,14 @@ class AdminCourseControllerTest extends IntegrationTest {
                 }""".formatted(slug);
     }
 
+    /** A Course moved to Coming soon through the API, from a document with every field set. */
+    private long announcedCourse(String slug) {
+        long id = idOf(create(slug, "Backend"));
+        assertThat(put(id, fullDocument(slug))).hasStatusOk();
+        assertThat(changeStatus(id, "COMING_SOON")).hasStatusOk();
+        return id;
+    }
+
     private MvcTestResult get(long id) {
         return mvc.get().uri("/v1/admin/courses/" + id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -698,6 +973,15 @@ class AdminCourseControllerTest extends IntegrationTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(document)
+                .exchange();
+    }
+
+    private MvcTestResult changeStatus(long id, String status) {
+        return mvc.put().uri("/v1/admin/courses/" + id + "/status")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"status": "%s"}""".formatted(status))
                 .exchange();
     }
 

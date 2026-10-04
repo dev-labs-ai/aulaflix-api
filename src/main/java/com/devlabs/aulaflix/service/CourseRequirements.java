@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
+import com.devlabs.aulaflix.domain.CourseStatus;
 import com.devlabs.aulaflix.domain.entity.CourseEntity;
 
 /**
@@ -35,12 +36,13 @@ final class CourseRequirements {
     private CourseRequirements() {
     }
 
-    static List<String> missingToGoComingSoon(CourseEntity course) {
-        return missing(COMING_SOON, course);
-    }
-
-    static List<String> missingToGoOnSale(CourseEntity course) {
-        return missing(ON_SALE, course);
+    /** The fields the Course lacks to be in the state: to move there, or to stay there. A Draft needs nothing. */
+    static List<String> missingFor(CourseStatus state, CourseEntity course) {
+        return switch (state) {
+            case DRAFT -> List.of();
+            case COMING_SOON -> missing(COMING_SOON, course);
+            case ON_SALE -> missing(ON_SALE, course);
+        };
     }
 
     private static List<String> missing(List<Requirement> requirements, CourseEntity course) {

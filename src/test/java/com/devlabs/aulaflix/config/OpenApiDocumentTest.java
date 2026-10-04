@@ -10,7 +10,9 @@ import org.springframework.http.MediaType;
 
 import com.devlabs.aulaflix.IntegrationTest;
 
-/** The Admin works through Swagger UI over the SSH tunnel, so the document and the UI need no session. */
+/**
+ * The Admin works through Swagger UI over the SSH tunnel, so the documents and the UI need no session and no BFF key.
+ */
 class OpenApiDocumentTest extends IntegrationTest {
 
     @Test
@@ -227,18 +229,107 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .hasSize(6);
     }
 
+    @Test
+    void documentsEveryStatusTheStatusEndpointCanAnswer() {
+        assertResponses("/v1/admin/courses/{courseId}/status", "put",
+                "200", "400", "401", "403", "404", "409", "500");
+    }
+
+    @Test
+    void servesTheBffGroupWithTheCatalogAndNoAdminEndpoint() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).hasStatusOk().bodyJson()
+                .extractingPath("$.paths").asMap()
+                .containsOnlyKeys("/v1/courses", "/v1/courses/{slug}");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/courses": {
+                      "get": {
+                        "tags": ["Catalog"],
+                        "responses": {
+                          "200": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CourseList"}}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/courses/{slug}": {
+                      "get": {
+                        "tags": ["Catalog"],
+                        "responses": {
+                          "200": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CourseDetail"}}}
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().doesNotHavePath("$.paths['/v1/courses']");
+    }
+
+    @Test
+    void asksEveryBffEndpointForTheKeyAndTheBrowsersIp() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "components": {
+                    "securitySchemes": {"bffKey": {"type": "apiKey", "in": "header", "name": "AulaFlix-BFF-Key"}}
+                  },
+                  "paths": {
+                    "/v1/courses": {
+                      "get": {
+                        "security": [{"bffKey": []}],
+                        "parameters": [{"name": "AulaFlix-Client-IP", "in": "header", "required": true}]
+                      }
+                    },
+                    "/v1/courses/{slug}": {
+                      "get": {
+                        "security": [{"bffKey": []}],
+                        "parameters": [
+                          {"name": "slug", "in": "path", "required": true},
+                          {"name": "AulaFlix-Client-IP", "in": "header", "required": true}
+                        ]
+                      }
+                    }
+                  }
+                }""");
+    }
+
+    @Test
+    void documentsEveryStatusEachCatalogEndpointCanAnswer() {
+        assertResponsesIn("bff", "/v1/courses", "get", "200", "400", "401", "403", "500");
+        assertResponsesIn("bff", "/v1/courses/{slug}", "get", "200", "400", "401", "403", "404", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/courses'].get.responses['403'].description").asString()
+                .contains("invalid-bff-key")
+                .doesNotContain("role");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/courses'].get.responses['400'].description").asString()
+                .contains("invalid-request", "invalid-client-ip");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/courses/{slug}'].get.responses[*].content")
+                .asArray()
+                .hasSize(6)
+                .filteredOn(content -> ((Map<?, ?>) content).containsKey("application/problem+json"))
+                .hasSize(5);
+    }
+
     private void assertResponses(String path, String method, String... statuses) {
-        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+        assertResponsesIn("admin", path, method, statuses);
+    }
+
+    private void assertResponsesIn(String group, String path, String method, String... statuses) {
+        assertThat(mvc.get().uri("/v3/api-docs/" + group)).bodyJson()
                 .extractingPath("$.paths['%s'].%s.responses".formatted(path, method))
                 .asMap()
                 .containsOnlyKeys(statuses);
     }
 
     @Test
-    void servesSwaggerUiListingTheAdminGroup() {
+    void servesSwaggerUiListingTheAdminAndBffGroups() {
         assertThat(mvc.get().uri("/swagger-ui/index.html")).hasStatusOk()
                 .hasContentTypeCompatibleWith(MediaType.TEXT_HTML);
         assertThat(mvc.get().uri("/v3/api-docs/swagger-config")).hasStatus(HttpStatus.OK)
-                .bodyJson().extractingPath("$.urls[*].name").asArray().contains("admin");
+                .bodyJson().extractingPath("$.urls[*].name").asArray().contains("admin", "bff");
     }
 }

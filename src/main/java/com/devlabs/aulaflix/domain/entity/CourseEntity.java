@@ -225,6 +225,16 @@ public class CourseEntity {
         return status;
     }
 
+    /** Moves the Course forward to the state, as of the instant; whether it may go there is the service's call. */
+    public void moveTo(CourseStatus status, Instant at) {
+        switch (status) {
+            case DRAFT -> throw new IllegalArgumentException("A Course never moves back to Draft");
+            case COMING_SOON -> comingSoonAt = at;
+            case ON_SALE -> onSaleAt = at;
+        }
+        this.status = status;
+    }
+
     public Instant getComingSoonAt() {
         return comingSoonAt;
     }

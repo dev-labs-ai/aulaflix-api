@@ -7,8 +7,8 @@ import java.time.ZoneOffset;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Inserts Courses straight into the {@code courses} table, in states no endpoint can reach yet, so tests can show how
- * the Admin endpoints treat a Course that is no longer a Draft.
+ * Inserts Courses straight into the {@code courses} table: On sale ones, a state no endpoint can reach yet, and Coming
+ * soon ones announced at a chosen time, so tests can show how the endpoints treat a Course that is no longer a Draft.
  */
 public final class StoredCourses {
 
@@ -33,15 +33,21 @@ public final class StoredCourses {
 
     /** An On sale Course that went there straight from Draft, so it was never Coming soon. */
     public long insertOnSale(String slug, Instant onSaleAt) {
+        return insertOnSale(slug, null, onSaleAt);
+    }
+
+    /** An On sale Course that was Coming soon first, when {@code comingSoonAt} is not null. */
+    public long insertOnSale(String slug, Instant comingSoonAt, Instant onSaleAt) {
         long id = jdbc.queryForObject("select nextval('seq_course')", Long.class);
         jdbc.update("""
                         insert into courses (id, slug, title, summary, area, icon, tone, about, learn, audience,
                                              planned_topics, faq, price_cents, pix_discount_percent,
-                                             max_installments, status, on_sale_at)
+                                             max_installments, status, coming_soon_at, on_sale_at)
                         values (?, ?, 'Testes Automatizados', 'Testes que dão confiança.', 'QUALITY',
                                 'FLASK_CONICAL', 'YELLOW', '["Por que testar."]', '["Unidade."]', '["Devs."]',
-                                '[]', '[]', 39700, 10, 10, 'ON_SALE', ?)""",
-                id, slug, OffsetDateTime.ofInstant(onSaleAt, ZoneOffset.UTC));
+                                '["Pirâmide de testes."]', '[]', 39700, 10, 10, 'ON_SALE', ?, ?)""",
+                id, slug, comingSoonAt == null ? null : OffsetDateTime.ofInstant(comingSoonAt, ZoneOffset.UTC),
+                OffsetDateTime.ofInstant(onSaleAt, ZoneOffset.UTC));
         return id;
     }
 }

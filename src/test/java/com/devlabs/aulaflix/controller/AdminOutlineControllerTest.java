@@ -587,7 +587,7 @@ class AdminOutlineControllerTest extends IntegrationTest {
 
     private void assertCourseNotFound(MvcTestResult result, String path) {
         assertProblem(result, path, HttpStatus.NOT_FOUND, "course-not-found", "Course not found",
-                "No Course has this id.");
+                "The Course does not exist.");
     }
 
     private void assertModuleNotFound(MvcTestResult result, String path) {

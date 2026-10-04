@@ -1,9 +1,9 @@
 package com.devlabs.aulaflix.exception;
 
-/** No Course has the id; an id that cannot be one answers the same. */
+/** No Course has the id or the slug; one that cannot be either, and a Draft to the public, answer the same. */
 public class CourseNotFoundException extends RuntimeException {
 
     public CourseNotFoundException() {
-        super("No Course has this id");
+        super("No Course has this id or slug");
     }
 }

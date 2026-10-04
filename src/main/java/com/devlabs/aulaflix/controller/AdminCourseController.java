@@ -28,6 +28,7 @@ import com.devlabs.aulaflix.dto.AdminCourse;
 import com.devlabs.aulaflix.dto.AdminCourseList;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.dto.CourseDocument;
+import com.devlabs.aulaflix.dto.CourseStatusChange;
 import com.devlabs.aulaflix.dto.NewCourseRequest;
 import com.devlabs.aulaflix.service.CourseService;
 
@@ -94,11 +95,30 @@ public class AdminCourseController {
             `invalid-format`""")
     @ApiResponse(responseCode = "404", description = "`course-not-found`")
     @ApiResponse(responseCode = "409", description = """
-            `slug-taken`, or `price-not-divisible-by-installments` when both are set and `priceCents` leaves a \
-            remainder""")
+            `slug-taken`; `slug-frozen` once the Course is no longer a Draft; `price-not-divisible-by-installments` \
+            when both are set and `priceCents` leaves a remainder; or `course-requirements-unmet` when the document \
+            would leave a Course that is no longer a Draft without a field its state needs, all listed in `missing`""")
     public AdminCourse update(@AuthenticationPrincipal AuthenticatedAccount admin, @PathVariable String courseId,
                               @Valid @RequestBody CourseDocument document) {
         return courses.update(admin.accountId(), courseId, document);
+    }
+
+    @PutMapping("/{courseId}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Move a Course to another state", description = """
+            A Course moves forward only: from Draft to Coming soon to On sale, or from Draft straight to On sale. \
+            Sending the state it is already in changes nothing, so a retry is harmless.""")
+    @ApiResponse(responseCode = "200", description = "The Course as it now is",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = AdminCourse.class)))
+    @ApiResponse(responseCode = "400", description = "`invalid-request`, with a code for each field in `errors`")
+    @ApiResponse(responseCode = "404", description = "`course-not-found`")
+    @ApiResponse(responseCode = "409", description = """
+            `course-cannot-move-back`, or `course-requirements-unmet` with every field the state needs and the Course \
+            lacks listed in `missing`, as `readiness` shows them""")
+    public AdminCourse changeStatus(@AuthenticationPrincipal AuthenticatedAccount admin, @PathVariable String courseId,
+                                    @Valid @RequestBody CourseStatusChange change) {
+        return courses.changeStatus(admin.accountId(), courseId, change);
     }
 
     @DeleteMapping("/{courseId}")

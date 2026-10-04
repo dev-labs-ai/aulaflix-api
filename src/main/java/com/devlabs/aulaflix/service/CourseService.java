@@ -1,5 +1,7 @@
 package com.devlabs.aulaflix.service;
 
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -14,12 +16,16 @@ import com.devlabs.aulaflix.domain.entity.CourseFaqEntry;
 import com.devlabs.aulaflix.dto.AdminCourse;
 import com.devlabs.aulaflix.dto.AdminCourseList;
 import com.devlabs.aulaflix.dto.CourseDocument;
+import com.devlabs.aulaflix.dto.CourseStatusChange;
 import com.devlabs.aulaflix.dto.FaqEntry;
 import com.devlabs.aulaflix.dto.NewCourseRequest;
 import com.devlabs.aulaflix.dto.Readiness;
+import com.devlabs.aulaflix.exception.CourseCannotMoveBackException;
 import com.devlabs.aulaflix.exception.CourseNotDraftException;
 import com.devlabs.aulaflix.exception.CourseNotFoundException;
+import com.devlabs.aulaflix.exception.CourseRequirementsUnmetException;
 import com.devlabs.aulaflix.exception.PriceNotDivisibleByInstallmentsException;
+import com.devlabs.aulaflix.exception.SlugFrozenException;
 import com.devlabs.aulaflix.exception.SlugTakenException;
 import com.devlabs.aulaflix.repository.CourseRepository;
 
@@ -30,9 +36,11 @@ public class CourseService {
     private static final Logger log = LoggerFactory.getLogger(CourseService.class);
 
     private final CourseRepository repository;
+    private final Clock clock;
 
-    public CourseService(CourseRepository repository) {
+    public CourseService(CourseRepository repository, Clock clock) {
         this.repository = repository;
+        this.clock = clock;
     }
 
     @Transactional
@@ -58,23 +66,45 @@ public class CourseService {
         return adminView(find(courseId));
     }
 
-    /** Replaces the whole editable document: a field left out is cleared. */
+    /**
+     * Replaces the whole editable document: a field left out is cleared. A Course that is no longer a Draft keeps its
+     * slug, and every field its state needs. Those are checked on the Course as the document leaves it, and refusing
+     * rolls the document back.
+     */
     @Transactional
     public AdminCourse update(long adminId, String courseId, CourseDocument document) {
-        CourseEntity course = find(courseId);
-        if (!course.getSlug().equals(document.slug()) && repository.existsBySlug(document.slug())) {
-            throw new SlugTakenException();
-        }
+        CourseEntity course = lock(courseId);
+        requireSlugChangeAllowed(course, document.slug());
         requireExactInstallments(document);
         apply(document, course);
+        requireFitFor(course.getStatus(), course);
         log.info("Admin {} updated Course {}", adminId, course.getId());
+        return adminView(course);
+    }
+
+    /**
+     * Sending the state the Course is already in changes nothing, so a retried move is harmless. The instant is cut to
+     * the microseconds PostgreSQL keeps, so that the answer shows what every later read will.
+     */
+    @Transactional
+    public AdminCourse changeStatus(long adminId, String courseId, CourseStatusChange change) {
+        CourseEntity course = lock(courseId);
+        if (change.status().compareTo(course.getStatus()) < 0) {
+            throw new CourseCannotMoveBackException();
+        }
+        if (change.status() == course.getStatus()) {
+            return adminView(course);
+        }
+        requireFitFor(change.status(), course);
+        course.moveTo(change.status(), clock.instant().truncatedTo(ChronoUnit.MICROS));
+        log.info("Admin {} moved Course {} to {}", adminId, course.getId(), change.status());
         return adminView(course);
     }
 
     /** Only a Draft, which no one but Admins has ever seen. */
     @Transactional
     public void delete(long adminId, String courseId) {
-        CourseEntity course = find(courseId);
+        CourseEntity course = lock(courseId);
         if (course.getStatus() != CourseStatus.DRAFT) {
             throw new CourseNotDraftException();
         }
@@ -85,6 +115,34 @@ public class CourseService {
     /** Takes the id as the path carries it, so that an id of any shape answers like an unknown one. */
     private CourseEntity find(String courseId) {
         return PathIds.parse(courseId).flatMap(repository::findById).orElseThrow(CourseNotFoundException::new);
+    }
+
+    /**
+     * Holds the Course's row lock until the transaction ends, so that an edit, a move and a deletion of one Course go
+     * one at a time: a move could otherwise check a document that a concurrent edit is emptying.
+     */
+    private CourseEntity lock(String courseId) {
+        return PathIds.parse(courseId).flatMap(repository::findLockedById).orElseThrow(CourseNotFoundException::new);
+    }
+
+    /** The slug is the web's address for the Course, so it stays put once anyone but Admins can see it. */
+    private void requireSlugChangeAllowed(CourseEntity course, String slug) {
+        if (course.getSlug().equals(slug)) {
+            return;
+        }
+        if (course.getStatus() != CourseStatus.DRAFT) {
+            throw new SlugFrozenException();
+        }
+        if (repository.existsBySlug(slug)) {
+            throw new SlugTakenException();
+        }
+    }
+
+    private static void requireFitFor(CourseStatus state, CourseEntity course) {
+        List<String> missing = CourseRequirements.missingFor(state, course);
+        if (!missing.isEmpty()) {
+            throw new CourseRequirementsUnmetException(missing);
+        }
     }
 
     /** The installment is {@code priceCents / maxInstallments} with no remainder, once both are set. */
@@ -144,9 +202,9 @@ public class CourseService {
     /** Only the states the Course can still move to, and none at all once it is On sale. */
     private static Readiness readinessOf(CourseEntity course) {
         return switch (course.getStatus()) {
-            case DRAFT -> new Readiness(CourseRequirements.missingToGoComingSoon(course),
-                    CourseRequirements.missingToGoOnSale(course));
-            case COMING_SOON -> new Readiness(null, CourseRequirements.missingToGoOnSale(course));
+            case DRAFT -> new Readiness(CourseRequirements.missingFor(CourseStatus.COMING_SOON, course),
+                    CourseRequirements.missingFor(CourseStatus.ON_SALE, course));
+            case COMING_SOON -> new Readiness(null, CourseRequirements.missingFor(CourseStatus.ON_SALE, course));
             case ON_SALE -> null;
         };
     }

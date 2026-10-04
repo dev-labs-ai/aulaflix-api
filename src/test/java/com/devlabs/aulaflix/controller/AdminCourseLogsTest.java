@@ -14,13 +14,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 import com.devlabs.aulaflix.AdminApi;
+import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.service.AccountService;
 import com.jayway.jsonpath.JsonPath;
 
 /**
  * Logs must not become a leak. This asserts only what never appears, whatever the wording of the lines: the Admin's
- * email, name and token, through every Course mutation and its refusals.
+ * email, name and token, through every Course mutation and its refusals, moves between states included.
  */
 @ExtendWith(OutputCaptureExtension.class)
 class AdminCourseLogsTest extends IntegrationTest {
@@ -51,6 +52,16 @@ class AdminCourseLogsTest extends IntegrationTest {
                 .content("""
                         {"slug": "%s", "title": "Backend", "priceCents": 10, "maxInstallments": 3}"""
                         .formatted(slug)).exchange();
+        mvc.put().uri(path + "/status").header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"status\": \"COMING_SOON\"}").exchange();
+        mvc.put().uri(path).header(HttpHeaders.AUTHORIZATION, bearer).contentType(MediaType.APPLICATION_JSON)
+                .content(AdminCourses.fullDocument(slug)).exchange();
+        mvc.put().uri(path + "/status").header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"status\": \"COMING_SOON\"}").exchange();
+        mvc.put().uri(path + "/status").header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"status\": \"DRAFT\"}").exchange();
+        mvc.put().uri(path).header(HttpHeaders.AUTHORIZATION, bearer).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"slug\": \"%s\", \"title\": \"Backend\"}".formatted(slug)).exchange();
         mvc.delete().uri(path).header(HttpHeaders.AUTHORIZATION, bearer).exchange();
         mvc.get().uri(path).header(HttpHeaders.AUTHORIZATION, bearer).exchange();
 
