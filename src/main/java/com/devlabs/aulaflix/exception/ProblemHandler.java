@@ -1,0 +1,172 @@
+package com.devlabs.aulaflix.exception;
+
+import java.net.URI;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+import jakarta.servlet.http.HttpServletRequest;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+/**
+ * The Problems module: every refusal, in every environment, is a ProblemDetail whose {@code type} is
+ * {@code https://aulaflix.com.br/problems/<name>}. The security filters hand their refusals here too.
+ */
+@RestControllerAdvice
+public class ProblemHandler extends ResponseEntityExceptionHandler {
+
+    private static final String TYPE_PREFIX = "https://aulaflix.com.br/problems/";
+
+    private static final Logger log = LoggerFactory.getLogger(ProblemHandler.class);
+
+    private final Clock clock;
+
+    public ProblemHandler(Clock clock) {
+        this.clock = clock;
+    }
+
+    @ExceptionHandler(InvalidRequestException.class)
+    ResponseEntity<Object> invalidRequest(InvalidRequestException refusal, HttpServletRequest request) {
+        return invalidRequest(refusal.violations(), request);
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    ResponseEntity<Object> invalidCredentials(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-credentials", "Invalid credentials",
+                "The email or the password is wrong."), request);
+    }
+
+    @ExceptionHandler(SignInBlockedException.class)
+    ResponseEntity<Object> signInBlocked(SignInBlockedException refusal, HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.TOO_MANY_REQUESTS, "sign-in-blocked", "Sign-in blocked",
+                        "Too many failed sign-ins for this email. Try again later."),
+                request, retryAfter(refusal.retryAfter()), Map.of());
+    }
+
+    /** Raised by the session token filter, and by the chain for a request that needs a session and has none. */
+    @ExceptionHandler(AuthenticationException.class)
+    ResponseEntity<Object> unauthenticated(HttpServletRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        return refuse(new Refusal(HttpStatus.UNAUTHORIZED, "unauthenticated", "Unauthenticated",
+                "This needs a valid session token, sent as Authorization: Bearer."), request, headers, Map.of());
+    }
+
+    /** A valid session of the wrong role, refused by the chain or by {@code @PreAuthorize}. */
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<Object> forbidden(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.FORBIDDEN, "forbidden", "Forbidden",
+                "This session's role may not do this."), request);
+    }
+
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<Object> unexpected(Exception failure, HttpServletRequest request) {
+        log.error("Unexpected failure on {} {}", request.getMethod(), request.getRequestURI(), failure);
+        ProblemDetail problem = problem(new Refusal(HttpStatus.INTERNAL_SERVER_ERROR, "internal-error",
+                "Internal error", "The request could not be completed."));
+        return ResponseEntity.internalServerError().body(problem);
+    }
+
+    /** Bean validation on a request body; each violation's message is the field's code. */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException failure,
+                                                                  HttpHeaders headers, HttpStatusCode status,
+                                                                  WebRequest request) {
+        List<FieldViolation> violations = failure.getBindingResult().getFieldErrors().stream()
+                .map(error -> new FieldViolation(error.getField(), error.getDefaultMessage()))
+                .toList();
+        return invalidRequest(violations, servletRequest(request));
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException failure,
+                                                                  HttpHeaders headers, HttpStatusCode status,
+                                                                  WebRequest request) {
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-request", "Invalid request",
+                "The body is not the JSON this endpoint expects."), servletRequest(request));
+    }
+
+    /**
+     * Every refusal Spring MVC makes on its own (an unknown path, a wrong method or media type, …) passes through
+     * here with its type unset, which RFC 9457 reads as {@code about:blank}. It gets a type named after its status,
+     * and the same envelope as the API's own refusals.
+     */
+    @Override
+    protected ResponseEntity<Object> createResponseEntity(Object body, HttpHeaders headers, HttpStatusCode statusCode,
+                                                          WebRequest request) {
+        if (body instanceof ProblemDetail problem && problem.getType() == null) {
+            String name = HttpStatus.valueOf(statusCode.value()).name().toLowerCase(Locale.ROOT).replace('_', '-');
+            HttpServletRequest servletRequest = servletRequest(request);
+            log.warn("Refused {} {}: {}", servletRequest.getMethod(), servletRequest.getRequestURI(), name);
+            dress(problem, name, StringUtils.capitalize(name.replace('-', ' ')));
+        }
+        return super.createResponseEntity(body, headers, statusCode, request);
+    }
+
+    /** The fields in a fixed order, since the web shows only the first error. */
+    private ResponseEntity<Object> invalidRequest(List<FieldViolation> violations, HttpServletRequest request) {
+        List<FieldViolation> errors = violations.stream().sorted(Comparator.comparing(FieldViolation::field)).toList();
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-request", "Invalid request",
+                "One or more fields are invalid."), request, new HttpHeaders(), Map.of("errors", errors));
+    }
+
+    private ResponseEntity<Object> refuse(Refusal refusal, HttpServletRequest request) {
+        return refuse(refusal, request, new HttpHeaders(), Map.of());
+    }
+
+    private ResponseEntity<Object> refuse(Refusal refusal, HttpServletRequest request, HttpHeaders headers,
+                                          Map<String, Object> extensions) {
+        log.warn("Refused {} {}: {}", request.getMethod(), request.getRequestURI(), refusal.name());
+        ProblemDetail problem = problem(refusal);
+        extensions.forEach(problem::setProperty);
+        return ResponseEntity.status(refusal.status()).headers(headers).body(problem);
+    }
+
+    private ProblemDetail problem(Refusal refusal) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(refusal.status(), refusal.detail());
+        dress(problem, refusal.name(), refusal.title());
+        return problem;
+    }
+
+    /** The type, title and time every problem carries; Spring MVC sets the request path as its instance. */
+    private void dress(ProblemDetail problem, String name, String title) {
+        problem.setType(URI.create(TYPE_PREFIX + name));
+        problem.setTitle(title);
+        problem.setProperty("timestamp", clock.instant().toString());
+    }
+
+    /** Whole seconds, rounded up, so a client that waits that long is never refused again for the same reason. */
+    private static HttpHeaders retryAfter(Duration wait) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.RETRY_AFTER, Long.toString(wait.toSeconds() + (wait.toNanosPart() > 0 ? 1 : 0)));
+        return headers;
+    }
+
+    private static HttpServletRequest servletRequest(WebRequest request) {
+        return ((ServletWebRequest) request).getRequest();
+    }
+
+    /** One of the API's problem types: its status, its {@code <name>}, and the title and detail it always carries. */
+    private record Refusal(HttpStatus status, String name, String title, String detail) {
+    }
+}

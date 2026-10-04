@@ -15,10 +15,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import com.devlabs.aulaflix.AdminApi;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.StoredAccounts;
 import com.devlabs.aulaflix.StoredAccounts.StoredAccount;
@@ -27,6 +29,10 @@ import com.devlabs.aulaflix.service.AccountService;
 class AdminCommandTest extends IntegrationTest {
 
     private static final String PASSWORD = "correct horse battery";
+    private static final String NEW_PASSWORD = "tr0ub4dor & 3 staples";
+    private static final String USAGE = """
+            Usage: admin create --email <email> --name <name>
+                   admin password --email <email>""";
 
     @Autowired
     private PostgreSQLContainer postgres;
@@ -190,7 +196,7 @@ class AdminCommandTest extends IntegrationTest {
         int exitCode = AdminRun.against(postgres).run(terminal, args.toArray(String[]::new));
 
         assertThat(exitCode).isEqualTo(1);
-        assertThat(terminal.output()).isEqualTo("Usage: admin create --email <email> --name <name>");
+        assertThat(terminal.output()).isEqualTo(USAGE);
         assertThat(terminal.prompts()).isEmpty();
         assertThat(countAccounts()).isEqualTo(accountsBefore);
     }
@@ -205,7 +211,93 @@ class AdminCommandTest extends IntegrationTest {
                 List.of("admin", "create", "--email", email, "--name"),
                 List.of("admin", "create", "--email", email, "--nome", "Ana"),
                 List.of("admin", "create", "--email", email, "--name", "Ana", "--name", "Bia"),
-                List.of("admin", "create", "--email", email, "--email", email));
+                List.of("admin", "create", "--email", email, "--email", email),
+                List.of("admin", "password"),
+                List.of("admin", "password", "--email"),
+                List.of("admin", "password", "--email", email, "--name", "Ana"),
+                List.of("admin", "password", "--name", "Ana"));
+    }
+
+    @Test
+    void changesThePasswordAndEndsEverySessionOfThatAdminOnly() {
+        String email = uniqueEmail();
+        String otherEmail = uniqueEmail();
+        accounts.createAdmin(email, "Ana", PASSWORD);
+        accounts.createAdmin(otherEmail, "Bia", PASSWORD);
+        AdminApi api = new AdminApi(mvc);
+        String firstSession = api.sessionToken(email, PASSWORD);
+        String secondSession = api.sessionToken(email, PASSWORD);
+        String otherAdminsSession = api.sessionToken(otherEmail, PASSWORD);
+        ScriptedTerminal terminal = new ScriptedTerminal(NEW_PASSWORD, NEW_PASSWORD);
+
+        int exitCode = AdminRun.against(postgres)
+                .run(terminal, "admin", "password", "--email", " " + email.toUpperCase());
+
+        assertThat(exitCode).isZero();
+        assertThat(terminal.prompts()).containsExactly("New password: ", "Repeat the new password: ");
+        long id = new StoredAccounts(jdbc).find(email).orElseThrow().id();
+        String changed = "Changed the password of the Admin Account %s (id %d) and ended all its sessions.";
+        assertThat(terminal.output()).isEqualTo(changed.formatted(email, id));
+        assertThat(api.signOut(firstSession)).hasStatus(HttpStatus.UNAUTHORIZED);
+        assertThat(api.signOut(secondSession)).hasStatus(HttpStatus.UNAUTHORIZED);
+        assertThat(api.signOut(otherAdminsSession)).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(api.signIn(email, PASSWORD)).hasStatus(HttpStatus.BAD_REQUEST);
+        assertThat(api.signIn(email, NEW_PASSWORD)).hasStatus(HttpStatus.CREATED);
+    }
+
+    @Test
+    void refusesAnEmailOfNoAdminAndChangesNothing() {
+        String student = uniqueEmail();
+        new StoredAccounts(jdbc).insertStudent(student, PASSWORD);
+
+        for (String email : List.of(uniqueEmail(), student)) {
+            ScriptedTerminal terminal = new ScriptedTerminal(NEW_PASSWORD, NEW_PASSWORD);
+
+            int exitCode = AdminRun.against(postgres).run(terminal, "admin", "password", "--email", email);
+
+            assertThat(exitCode).isEqualTo(1);
+            assertThat(terminal.output()).isEqualTo("No Admin Account has this email. Nothing was changed.");
+        }
+        assertThat(new StoredAccounts(jdbc).find(student).orElseThrow().hasBcryptHashOf(PASSWORD)).isTrue();
+    }
+
+    @Test
+    void refusesANewPasswordConfirmationThatDoesNotMatchAndChangesNothing() {
+        String email = uniqueEmail();
+        accounts.createAdmin(email, "Ana", PASSWORD);
+        String session = new AdminApi(mvc).sessionToken(email, PASSWORD);
+        ScriptedTerminal terminal = new ScriptedTerminal(NEW_PASSWORD, NEW_PASSWORD + " ");
+
+        int exitCode = AdminRun.against(postgres).run(terminal, "admin", "password", "--email", email);
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(terminal.output()).isEqualTo("The passwords do not match. Nothing was changed.");
+        assertThat(new StoredAccounts(jdbc).find(email).orElseThrow().hasBcryptHashOf(PASSWORD)).isTrue();
+        assertThat(new AdminApi(mvc).signOut(session)).hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidNewPasswords")
+    void explainsAnInvalidNewPasswordAndChangesNothing(String newPassword, String explanation) {
+        String email = uniqueEmail();
+        accounts.createAdmin(email, "Ana", PASSWORD);
+        String session = new AdminApi(mvc).sessionToken(email, PASSWORD);
+        ScriptedTerminal terminal = new ScriptedTerminal(newPassword, newPassword);
+
+        int exitCode = AdminRun.against(postgres).run(terminal, "admin", "password", "--email", email);
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(terminal.output()).isEqualTo(explanation + "\nNothing was changed.");
+        assertThat(new StoredAccounts(jdbc).find(email).orElseThrow().hasBcryptHashOf(PASSWORD)).isTrue();
+        assertThat(new AdminApi(mvc).signOut(session)).hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    static Stream<Arguments> invalidNewPasswords() {
+        return Stream.of(
+                Arguments.of("", "The password is required."),
+                Arguments.of("1234567", "The password must have at least 8 characters."),
+                Arguments.of("\u00e9".repeat(36) + "a",
+                        "The password must have at most 72 bytes in UTF-8; accented letters take 2, emoji 4."));
     }
 
     private long countAccounts() {

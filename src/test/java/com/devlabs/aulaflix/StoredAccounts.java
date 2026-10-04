@@ -9,9 +9,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 /**
  * Reads the {@code accounts} table directly. No endpoint shows an Account yet, so the stored row is the only place a
- * test can observe what the admin command and the account service wrote.
+ * test can observe what the admin command and the account service wrote. It also inserts Students, whom no endpoint
+ * creates yet, so tests can show that the Admin flows refuse them.
  */
 public final class StoredAccounts {
+
+    private static final String BCRYPT_PREFIX = "{bcrypt}";
 
     private final JdbcTemplate jdbc;
 
@@ -33,6 +36,16 @@ public final class StoredAccounts {
                 email).stream().findFirst();
     }
 
+    /** A Student Account with a bcrypt hash made by an encoder of its own, as sign-up will store it. */
+    public long insertStudent(String email, String password) {
+        long id = jdbc.queryForObject("select nextval('seq_account')", Long.class);
+        jdbc.update("""
+                        insert into accounts (id, email, name, password_hash, role, created_at)
+                        values (?, ?, 'Bia', ?, 'STUDENT', now())""",
+                id, email, BCRYPT_PREFIX + new BCryptPasswordEncoder().encode(password));
+        return id;
+    }
+
     public long count() {
         return jdbc.queryForObject("select count(*) from accounts", Long.class);
     }
@@ -43,8 +56,6 @@ public final class StoredAccounts {
 
     public record StoredAccount(long id, String email, String name, String passwordHash, String role,
                                 Instant createdAt) {
-
-        private static final String BCRYPT_PREFIX = "{bcrypt}";
 
         /** Checks the stored hash with a bcrypt encoder of its own, not the application's. */
         public boolean hasBcryptHashOf(String password) {

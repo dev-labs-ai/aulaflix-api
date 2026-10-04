@@ -30,6 +30,16 @@ java -jar target/aulaflix-api-0.0.1-SNAPSHOT.jar admin create --email you@exampl
 It asks for the password twice without echoing it, so it needs a terminal. It starts no web server and no scheduled
 job, and it never migrates: while a migration is pending it refuses, so start the API once first.
 
+`admin password --email you@example.com` sets a new password the same way and ends every session of that Admin. It is
+the Admins' only reset: no HTTP endpoint creates an Admin or changes an Admin's password.
+
+## Signing in as an Admin
+
+Admins work through Swagger UI or curl, over the SSH tunnel. Swagger UI is at `/swagger-ui.html` and the OpenAPI
+document at `/v3/api-docs/admin`. Sign in with `POST /v1/admin/sessions` `{ "email": …, "password": … }`, then paste
+the returned `token` into "Authorize". A session ends after 30 minutes without use, 8 hours after sign-in at most, or
+with `DELETE /v1/admin/sessions/current`.
+
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL runs in Testcontainers. Mutation testing runs with

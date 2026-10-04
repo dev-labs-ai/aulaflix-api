@@ -52,8 +52,17 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-crypto</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>3.1.1</version>
         </dependency>
 
         <dependency>
@@ -92,6 +101,8 @@
                 <configuration>
                     <targetClasses>
                         <param>com.devlabs.aulaflix.command.*</param>
+                        <param>com.devlabs.aulaflix.config.*</param>
+                        <param>com.devlabs.aulaflix.exception.*</param>
                         <param>com.devlabs.aulaflix.service.*</param>
                     </targetClasses>
                     <excludedClasses>

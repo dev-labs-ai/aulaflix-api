@@ -8,6 +8,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import com.devlabs.aulaflix.exception.FieldViolation;
+import com.devlabs.aulaflix.exception.InvalidRequestException;
 
 /** Normalizes and checks Account input the same way the web does. */
 final class AccountInputRules {
@@ -27,6 +28,13 @@ final class AccountInputRules {
     private AccountInputRules() {
     }
 
+    /** Refuses the request with every invalid field at once. */
+    static void requireValid(List<FieldViolation> violations) {
+        if (!violations.isEmpty()) {
+            throw new InvalidRequestException(violations);
+        }
+    }
+
     static String normalizeEmail(String email) {
         return collapseWhitespace(email).toLowerCase(Locale.ROOT);
     }
@@ -38,6 +46,20 @@ final class AccountInputRules {
     /** Checks the normalized email and name, and the password as typed. */
     static List<FieldViolation> violations(String email, String name, String password) {
         return Stream.of(emailViolation(email), nameViolation(name), newPasswordViolation(password))
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
+    static List<FieldViolation> newPasswordViolations(String password) {
+        return newPasswordViolation(password).stream().toList();
+    }
+
+    /**
+     * Checks the normalized email and the password as typed. The request already requires the password, and a sign-in
+     * password has no minimum: only its maximum, since no Account can have a longer one.
+     */
+    static List<FieldViolation> signInViolations(String email, String password) {
+        return Stream.of(emailViolation(email), signInPasswordViolation(password))
                 .flatMap(Optional::stream)
                 .toList();
     }
@@ -72,6 +94,13 @@ final class AccountInputRules {
         if (characters(password) < PASSWORD_MIN_CHARACTERS) {
             return violation("password", "too-short");
         }
+        if (password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_UTF8_BYTES) {
+            return violation("password", "too-long");
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<FieldViolation> signInPasswordViolation(String password) {
         if (password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_UTF8_BYTES) {
             return violation("password", "too-long");
         }
