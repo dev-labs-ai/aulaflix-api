@@ -71,6 +71,11 @@ The reversal of an Order's payment at the Student's request, as the 7-day guaran
 Enrollment it granted.
 _Avoid_: chargeback, cancellation
 
+**Duplicate payment**:
+The payment of an Order that granted no Enrollment because the Student already had an active one for that Course;
+an Admin refunds it by hand.
+_Avoid_: double charge, duplicate order
+
 **Waitlist**:
 The people, Students or Visitors known only by email, who asked to be told when a coming-soon Course goes on sale;
 it is used up when that Course goes on sale.
