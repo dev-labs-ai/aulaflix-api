@@ -13,5 +13,7 @@ without touching code.
 - The storage needs its own public hostname, and the reverse proxy must pass `Host` through unchanged, or the
   signatures break.
 - Video traffic comes out of the VPS's monthly allowance; the 200 GB disk is the tighter limit on how much video fits.
-- AIStor Free is single-node, requires a license key and forbids redistribution; its license terms had not been read
-  when this was decided.
+- AIStor Free is single-node, requires a license file and forbids redistribution. Its license terms, read after this
+  was decided, allow commercial production use; the license belongs to the account, never expires and serves every
+  deployment, tests included, but every container needs it. Free has no encryption at rest, and one disk gives no
+  redundancy ([decision](https://github.com/dev-labs-ai/aulaflix-api/issues/17)).
