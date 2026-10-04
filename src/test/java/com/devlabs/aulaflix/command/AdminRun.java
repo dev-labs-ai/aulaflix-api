@@ -1,0 +1,79 @@
+package com.devlabs.aulaflix.command;
+
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.SpringApplicationRunListener;
+import org.springframework.boot.bootstrap.ConfigurableBootstrapContext;
+import org.springframework.boot.web.server.context.WebServerApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.MapPropertySource;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+
+/**
+ * Runs the jar's admin mode as {@code main} does, pointed at a test database, and notes what the started
+ * application contained.
+ */
+final class AdminRun {
+
+    private final Map<String, Object> properties = new HashMap<>();
+    private boolean started;
+    private boolean webServer;
+    private List<ScheduledTask> scheduledTasks = List.of();
+
+    AdminRun(String url, String username, String password) {
+        properties.put("spring.datasource.url", url);
+        properties.put("spring.datasource.username", username);
+        properties.put("spring.datasource.password", password);
+    }
+
+    static AdminRun against(PostgreSQLContainer postgres) {
+        return new AdminRun(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+    }
+
+    /** Sets one more property in the admin run's environment, above every other source. */
+    AdminRun with(String property, String value) {
+        properties.put(property, value);
+        return this;
+    }
+
+    int run(Terminal terminal, String... args) {
+        return SpringApplication.withHook(application -> new Listener(), () -> AdminMode.run(args, terminal));
+    }
+
+    boolean started() {
+        return started;
+    }
+
+    boolean startedWebServer() {
+        return webServer;
+    }
+
+    List<ScheduledTask> scheduledTasks() {
+        return scheduledTasks;
+    }
+
+    private final class Listener implements SpringApplicationRunListener {
+
+        @Override
+        public void environmentPrepared(ConfigurableBootstrapContext bootstrapContext,
+                                        ConfigurableEnvironment environment) {
+            environment.getPropertySources().addFirst(new MapPropertySource("admin-run", properties));
+        }
+
+        @Override
+        public void started(ConfigurableApplicationContext context, Duration timeTaken) {
+            started = true;
+            webServer = context instanceof WebServerApplicationContext;
+            scheduledTasks = context.getBeansOfType(ScheduledTaskHolder.class).values().stream()
+                    .flatMap(holder -> holder.getScheduledTasks().stream())
+                    .toList();
+        }
+    }
+}
