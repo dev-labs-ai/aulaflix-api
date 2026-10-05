@@ -1,5 +1,7 @@
 package com.devlabs.aulaflix.controller;
 
+import jakarta.validation.Valid;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -13,12 +15,15 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.devlabs.aulaflix.config.OpenApiConfiguration;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
+import com.devlabs.aulaflix.dto.LessonVisitRequest;
 import com.devlabs.aulaflix.dto.StudentEnrollmentDetail;
 import com.devlabs.aulaflix.dto.StudentEnrollmentList;
 import com.devlabs.aulaflix.service.LearningService;
@@ -48,9 +53,11 @@ public class LearningController {
     @PreAuthorize("hasRole('STUDENT')")
     @SecurityRequirement(name = OpenApiConfiguration.BEARER)
     @Operation(summary = "List the Student's active Enrollments", description = """
-            "Meus cursos": every active Enrollment, oldest first, with its Course and the Student's Progress in it. \
-            An Enrollment in a Coming soon Course comes without `progress` until the launch. An ended Enrollment is \
-            not listed.""")
+            "Meus cursos": every active Enrollment, with its Course, the Student's Progress in it and its \
+            `resumeLesson`. The most recently visited Course comes first, and the ones never visited follow, oldest \
+            Enrollment first. `highlightedCourseId` is the most recently visited Course with a published Lesson left \
+            to complete. An Enrollment in a Coming soon Course comes without `progress` and `resumeLesson` until the \
+            launch, and is never highlighted. An ended Enrollment is not listed.""")
     @ApiResponse(responseCode = "200", description = "The active Enrollments, unpaginated",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = StudentEnrollmentList.class)))
@@ -63,8 +70,8 @@ public class LearningController {
     @SecurityRequirement(name = OpenApiConfiguration.BEARER)
     @Operation(summary = "Read the Student's active Enrollment in a Course", description = """
             The Enrollment as the list shows it, with the ids of the Lessons the Student completed, for the Course's \
-            page. An Enrollment in a Coming soon Course comes without `progress` and `completedLessonIds` until the \
-            launch.""")
+            page. An Enrollment in a Coming soon Course comes without `progress`, `resumeLesson` and \
+            `completedLessonIds` until the launch.""")
     @ApiResponse(responseCode = "200", description = "The active Enrollment in the Course",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = StudentEnrollmentDetail.class)))
@@ -101,6 +108,21 @@ public class LearningController {
     public ResponseEntity<Void> uncomplete(@AuthenticationPrincipal AuthenticatedAccount student,
                                            @PathVariable String lessonId) {
         learning.uncomplete(student.accountId(), lessonId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/lesson-visits")
+    @PreAuthorize("hasRole('STUDENT')")
+    @SecurityRequirement(name = OpenApiConfiguration.BEARER)
+    @Operation(summary = "Record a visit to a Lesson", description = """
+            The Lesson's page calls this when it mounts: no read records a visit. Only the last visit per Course is \
+            kept, and it moves the Course's `resumeLesson` and its place in "Meus cursos".""")
+    @ApiResponse(responseCode = "204", description = "The Lesson is the last one the Student opened in its Course")
+    @ApiResponse(responseCode = "404", description = LESSON_NOT_FOUND)
+    @ApiResponse(responseCode = "409", description = ENROLLMENT_REQUIRED)
+    public ResponseEntity<Void> visit(@AuthenticationPrincipal AuthenticatedAccount student,
+                                      @Valid @RequestBody LessonVisitRequest request) {
+        learning.visit(student.accountId(), request.lessonId());
         return ResponseEntity.noContent().build();
     }
 }

@@ -332,7 +332,7 @@ class OpenApiDocumentTest extends IntegrationTest {
                         "/v1/account-lookups", "/v1/accounts", "/v1/account", "/v1/sessions",
                         "/v1/sessions/current", "/v1/email-confirmations", "/v1/account/confirmation-emails",
                         "/v1/account/enrollments", "/v1/account/enrollments/{courseId}",
-                        "/v1/account/completed-lessons/{lessonId}");
+                        "/v1/account/completed-lessons/{lessonId}", "/v1/account/lesson-visits");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -698,9 +698,30 @@ class OpenApiDocumentTest extends IntegrationTest {
                     "/v1/account/completed-lessons/{lessonId}": {
                       "put": {"tags": ["Learning"], "security": [{"bearer": [], "bffKey": []}]},
                       "delete": {"tags": ["Learning"], "security": [{"bearer": [], "bffKey": []}]}
+                    },
+                    "/v1/account/lesson-visits": {
+                      "post": {
+                        "tags": ["Learning"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "requestBody": {
+                          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LessonVisitRequest"}}}
+                        }
+                      }
                     }
                   }
                 }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.StudentEnrollmentList.properties").asMap()
+                .containsOnlyKeys("items", "highlightedCourseId");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.StudentEnrollment.properties").asMap()
+                .containsOnlyKeys("course", "progress", "resumeLesson");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.StudentEnrollmentDetail.properties").asMap()
+                .containsOnlyKeys("course", "progress", "resumeLesson", "completedLessonIds");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.ResumeLesson.properties").asMap()
+                .containsOnlyKeys("id", "slug", "number", "title");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.Progress.properties").asMap()
                 .containsOnlyKeys("completed", "published", "total", "percent", "standing");
@@ -732,6 +753,14 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/account/enrollments/{courseId}'].get.responses['404'].description")
                 .asString().contains("`enrollment-not-found`");
+        assertResponsesIn("bff", "/v1/account/lesson-visits", "post",
+                "204", "400", "401", "403", "404", "409", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/lesson-visits'].post.responses['404'].description")
+                .asString().contains("`lesson-not-found`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/lesson-visits'].post.responses['409'].description")
+                .asString().contains("`enrollment-required`");
     }
 
     @Test

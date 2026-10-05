@@ -30,26 +30,11 @@ public interface CompletedLessonRepository extends JpaRepository<CompletedLesson
     @Query("delete from CompletedLessonEntity c where c.student.id = :studentId and c.lesson.id = :lessonId")
     int deleteByStudentIdAndLessonId(@Param("studentId") long studentId, @Param("lessonId") long lessonId);
 
-    /** The Lessons of the Course the Student completed, by id. */
+    /** The Lessons of the Courses the Student completed, by id, ascending, all in one query. */
     @Query("""
             select c.lesson.id from CompletedLessonEntity c
-            where c.student.id = :studentId and c.lesson.course.id = :courseId
-            order by c.lesson.id""")
-    List<Long> findLessonIdsByStudentIdAndCourseId(@Param("studentId") long studentId,
-                                                   @Param("courseId") long courseId);
-
-    /** How many Lessons of each Course the Student completed, all in one query; a Course with none is left out. */
-    @Query("""
-            select c.lesson.course.id as courseId, count(c) as completed from CompletedLessonEntity c
             where c.student.id = :studentId and c.lesson.course.id in :courseIds
-            group by c.lesson.course.id""")
-    List<CourseCompletedCount> countByCourse(@Param("studentId") long studentId,
-                                             @Param("courseIds") Collection<Long> courseIds);
-
-    interface CourseCompletedCount {
-
-        long getCourseId();
-
-        long getCompleted();
-    }
+            order by c.lesson.id""")
+    List<Long> findLessonIdsByStudentIdAndCourseIdIn(@Param("studentId") long studentId,
+                                                     @Param("courseIds") Collection<Long> courseIds);
 }

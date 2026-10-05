@@ -83,9 +83,10 @@ class LearningControllerTest extends IntegrationTest {
                             },
                             "progress": {
                               "completed": 0, "published": 3, "total": 4, "percent": 0, "standing": "NOT_STARTED"
-                            }
+                            },
+                            "resumeLesson": {"id": %d, "slug": "o-que-e-uma-api", "number": 1, "title": "O que é uma API"}
                           }]
-                        }""".formatted(course.id(), slug));
+                        }""".formatted(course.id(), slug, course.freeLesson()));
     }
 
     @Test
@@ -166,8 +167,9 @@ class LearningControllerTest extends IntegrationTest {
                           "progress": {
                             "completed": 2, "published": 3, "total": 4, "percent": 50, "standing": "IN_PROGRESS"
                           },
+                          "resumeLesson": {"id": %d, "slug": "rotas-no-express", "number": 2, "title": "Rotas no Express"},
                           "completedLessonIds": [%d, %d]
-                        }""".formatted(course.id(), slug, course.freeLesson(), course.status()));
+                        }""".formatted(course.id(), slug, course.express(), course.freeLesson(), course.status()));
     }
 
     @Test
@@ -327,17 +329,22 @@ class LearningControllerTest extends IntegrationTest {
                 "completed", 1, "published", 1, "total", 1, "percent", 100, "standing", "FINISHED"));
     }
 
-    /** No N+1: listing four Enrollments, of both kinds, takes as many statements as listing one. */
+    /**
+     * No N+1: listing four Enrollments, of both kinds, with their marks, visits and Resume lessons, takes as many
+     * statements as listing one.
+     */
     @Test
     void listsAnyNumberOfEnrollmentsInTheSameNumberOfStatements() {
         String email = StudentApi.newEmail();
         LearningApi learning = new LearningApi(bff, new StudentApi(bff).signedUp(email, PASSWORD));
         Course first = onSaleCourse(newSlug());
         enrollments.granted(email, first.id());
+        learning.visited(first.freeLesson());
         learning.completed(first.freeLesson());
         long withOne = statementsToList(learning);
         for (Course course : List.of(onSaleCourse(newSlug()), onSaleCourse(newSlug()))) {
             enrollments.granted(email, course.id());
+            learning.visited(course.express());
             learning.completed(course.express());
         }
         enrollments.granted(email, courses.announced(newSlug()));

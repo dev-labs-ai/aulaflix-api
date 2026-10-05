@@ -152,6 +152,15 @@ public final class AdminCourses {
         put("/v1/admin/courses/" + courseId, document);
     }
 
+    /** The outline, {@code [{ moduleId, lessonIds }, …]}, as JSON. */
+    public String outline(long courseId) {
+        MvcTestResult outline = mvc.get().uri("/v1/admin/courses/%d/outline".formatted(courseId))
+                .header(HttpHeaders.AUTHORIZATION, bearer)
+                .exchange();
+        assertThat(outline).hasStatusOk();
+        return body(outline);
+    }
+
     /** Puts the outline, {@code [{ moduleId, lessonIds }, …]}, in the order given. */
     public void putOutline(long courseId, String outline) {
         put("/v1/admin/courses/%d/outline".formatted(courseId), outline);
