@@ -2,7 +2,10 @@ package com.devlabs.aulaflix.repository;
 
 import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -14,6 +17,10 @@ public interface AccountRepository extends JpaRepository<AccountEntity, Long> {
     boolean existsByEmail(String email);
 
     Optional<AccountEntity> findByEmailAndRole(String email, Role role);
+
+    /** Holds the Account's row lock until the transaction ends. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<AccountEntity> findLockedByEmailAndRole(String email, Role role);
 
     /**
      * Holds a lock on the email until the transaction ends, so that sign-ups of one email go one at a time. The row

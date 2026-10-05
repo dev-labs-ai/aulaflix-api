@@ -479,7 +479,7 @@ class OpenApiDocumentTest extends IntegrationTest {
     @Test
     void documentsEveryStatusPlaybackCanAnswer() {
         assertResponsesIn("bff", "/v1/lessons/{lessonId}/playback", "get",
-                "200", "400", "401", "403", "404", "429", "500");
+                "200", "400", "401", "403", "404", "409", "429", "500");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.responses['403'].description")
                 .asString().contains("`forbidden`", "Admin", "`invalid-bff-key`");
@@ -487,11 +487,50 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.responses['404'].description")
                 .asString().contains("`lesson-not-found`");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.responses['409'].description")
+                .asString().contains("`enrollment-required`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.responses[*].content")
                 .asArray()
-                .hasSize(7)
+                .hasSize(8)
                 .filteredOn(content -> ((Map<?, ?>) content).containsKey("application/problem+json"))
-                .hasSize(6);
+                .hasSize(7);
+    }
+
+    @Test
+    void documentsEveryStatusEachEnrollmentEndpointCanAnswer() {
+        assertResponses("/v1/admin/enrollments", "post", "201", "400", "401", "403", "409", "500");
+        assertResponses("/v1/admin/enrollments", "get", "200", "400", "401", "403", "500");
+        assertResponses("/v1/admin/enrollments/{enrollmentId}", "get", "200", "401", "403", "404", "500");
+        assertResponses("/v1/admin/enrollments/{enrollmentId}/status", "put",
+                "200", "400", "401", "403", "404", "409", "500");
+    }
+
+    @Test
+    void documentsTheEnrollmentListsQueryParameters() {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths['/v1/admin/enrollments'].get.parameters[*].name").asArray()
+                .containsExactlyInAnyOrder("email", "courseId", "active", "page", "size");
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/admin/enrollments": {
+                      "get": {
+                        "tags": ["Admin enrollments"],
+                        "security": [{"bearer": []}],
+                        "responses": {
+                          "200": {
+                            "content": {
+                              "application/json": {
+                                "schema": {"$ref": "#/components/schemas/PageResponseAdminEnrollment"}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""");
     }
 
     @Test
