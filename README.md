@@ -233,6 +233,15 @@ format, then HIBP, as `newPassword`), so a refused one never spends a try. A cod
 get 400 `invalid-code`, and the 5th wrong try voids the code. Per IP, the code request gets 20 a day and the reset 30
 an hour, whatever they answer (`aulaflix.rate-limits.password-reset-codes.*`, `aulaflix.rate-limits.password-resets.*`).
 
+A signed-in Student changes their password the same way, with the session: `POST /v1/account/password-change-codes`
+answers 204 and emails a `CHANGE` code, under the same rules, but since the Student is known, a request within 60
+seconds of the latest change code, or past 10 codes (of both kinds) within 24 hours, answers 429 with `Retry-After`.
+Then `PUT /v1/account/password` `{ code, newPassword }` answers 204: this session goes on and every other session of the
+Account ends, so a stolen one dies; the email counts as confirmed, and the password-changed email is queued. It checks
+the new password before the code, as the reset does, and refuses a wrong, expired, voided or superseded code, or none
+asked for, with 400 `invalid-code`. A `RESET` code never serves as a `CHANGE` code, nor the reverse. An Admin's token
+gets 403.
+
 The codes are drawn from a CSPRNG and stored only as an HMAC-SHA256 under the secret file `aulaflix.codes.hmac-key`,
 which also covers the Account and the kind of code, `RESET` or `CHANGE`. A new key voids the codes already sent, and
 nothing else.

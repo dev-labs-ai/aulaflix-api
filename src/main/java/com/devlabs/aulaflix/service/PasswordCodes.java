@@ -1,6 +1,7 @@
 package com.devlabs.aulaflix.service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -12,6 +13,7 @@ import com.devlabs.aulaflix.domain.entity.AccountEntity;
 import com.devlabs.aulaflix.domain.entity.Role;
 import com.devlabs.aulaflix.domain.entity.VerificationCodeKind;
 import com.devlabs.aulaflix.dto.IssuedSession;
+import com.devlabs.aulaflix.exception.RateLimitedException;
 import com.devlabs.aulaflix.repository.AccountRepository;
 import com.devlabs.aulaflix.service.VerificationCodes.Issued;
 import com.devlabs.aulaflix.service.VerificationCodes.Withheld;
@@ -71,6 +73,38 @@ class PasswordCodes {
             log.info("Account {} reset its password, ending its {} sessions", found.getId(), ended);
             return session;
         });
+    }
+
+    /**
+     * Queues a change code to the signed-in Student's email, or refuses with the limit that withholds it, which the
+     * Student, already known by their session, may well be told of.
+     */
+    @Transactional
+    public void sendChangeCode(long accountId) {
+        AccountEntity student = accounts.findLockedById(accountId).orElseThrow();
+        switch (codes.issue(student, VerificationCodeKind.CHANGE)) {
+            case Issued issued -> outbox.enqueue(templates.verificationCode(student.getEmail(), student.getName(),
+                    VerificationCodeKind.CHANGE, issued.code()));
+            case Withheld withheld -> throw new RateLimitedException(
+                    "Limit on %s reached by Account %d".formatted(withheld.limit(), student.getId()),
+                    Duration.between(clock.instant(), withheld.until()), true);
+        }
+    }
+
+    /**
+     * Sets the signed-in Student's new password with a change code, and ends every session of the Account but the one
+     * the change came with; or answers false for a code that is not the one.
+     */
+    @Transactional
+    public boolean change(long accountId, long keptSessionId, String code, String passwordHash) {
+        AccountEntity student = accounts.findLockedById(accountId).orElseThrow();
+        if (!codes.redeem(student, VerificationCodeKind.CHANGE, code)) {
+            return false;
+        }
+        setPassword(student, passwordHash);
+        int ended = sessions.endAllBut(student, keptSessionId);
+        log.info("Account {} changed its password, ending its {} other sessions", student.getId(), ended);
+        return true;
     }
 
     private void sendResetCode(AccountEntity student) {

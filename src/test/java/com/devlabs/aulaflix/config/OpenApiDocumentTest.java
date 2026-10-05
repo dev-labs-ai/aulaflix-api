@@ -336,7 +336,7 @@ class OpenApiDocumentTest extends IntegrationTest {
                         "/v1/account/enrollments", "/v1/account/enrollments/{courseId}",
                         "/v1/account/completed-lessons/{lessonId}", "/v1/account/lesson-visits",
                         "/v1/account/orders", "/v1/account/orders/{code}", "/v1/password-reset-codes",
-                        "/v1/password-resets");
+                        "/v1/password-resets", "/v1/account/password-change-codes", "/v1/account/password");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -827,6 +827,41 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.PasswordResetRequest.properties").asMap()
                 .containsOnlyKeys("email", "code", "newPassword");
+    }
+
+    @Test
+    void documentsThePasswordChangeWithASession() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/account/password-change-codes": {
+                      "post": {"tags": ["Password change"], "security": [{"bearer": [], "bffKey": []}]}
+                    },
+                    "/v1/account/password": {
+                      "put": {
+                        "tags": ["Password change"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PasswordChangeRequest"}}
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""");
+        assertResponsesIn("bff", "/v1/account/password-change-codes", "post", "204", "400", "401", "403", "429",
+                "500");
+        assertResponsesIn("bff", "/v1/account/password", "put", "204", "400", "401", "403", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/password'].put.responses['400'].description").asString()
+                .contains("`invalid-request`", "`breached`", "`invalid-code`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/password-change-codes'].post.responses['429'].description")
+                .asString().contains("`rate-limited`", "60 seconds", "10 codes");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.PasswordChangeRequest.properties").asMap()
+                .containsOnlyKeys("code", "newPassword");
     }
 
     @Test

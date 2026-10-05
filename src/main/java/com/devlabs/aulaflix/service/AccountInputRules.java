@@ -75,6 +75,13 @@ final class AccountInputRules {
                 .toList();
     }
 
+    /** Checks a password change: the code, and the new password, sent as {@code newPassword}. */
+    static List<FieldViolation> changeViolations(String code, String newPassword) {
+        return Stream.of(codeViolation(code), newPasswordViolation(NEW_PASSWORD, newPassword))
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
     /**
      * Checks the normalized email and the password as typed. The request already requires the password, and a sign-in
      * password has no minimum: only its maximum, since no Account can have a longer one.
