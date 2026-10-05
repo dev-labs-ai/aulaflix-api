@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.devlabs.aulaflix.domain.CourseStatus;
+import com.devlabs.aulaflix.domain.EnrollmentEndReason;
 import com.devlabs.aulaflix.domain.EnrollmentOrigin;
 import com.devlabs.aulaflix.domain.EnrollmentStatus;
 import com.devlabs.aulaflix.domain.entity.AccountEntity;
@@ -112,6 +113,19 @@ public class EnrollmentService {
         EnrollmentEntity enrollment = start(EnrollmentEntity.grantedByOrder(order, now()));
         log.info("Order {} granted Enrollment {} to Student {} in Course {}", order.getCode(), enrollment.getId(),
                 order.getStudent().getId(), order.getCourse().getId());
+    }
+
+    /**
+     * Ends, with the reason, the Enrollment the Order's payment granted, if it is still active, within the caller's
+     * transaction, which holds the Student's lock. A Duplicate payment granted none, so the Enrollment the Student holds
+     * through another Order, or by hand, stays.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void endGrantedBy(OrderEntity order, EnrollmentEndReason reason) {
+        repository.findByOrderId(order.getId()).filter(EnrollmentEntity::isActive).ifPresent(enrollment -> {
+            enrollment.endWithItsOrder(now(), reason);
+            log.info("Order {} ended Enrollment {} with {}", order.getCode(), enrollment.getId(), reason);
+        });
     }
 
     /**

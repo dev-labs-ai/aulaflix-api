@@ -327,6 +327,22 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "The Student has no Order with this code."), request);
     }
 
+    @ExceptionHandler(OrderNotPaidException.class)
+    ResponseEntity<Object> orderNotPaid(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "order-not-paid", "Order not paid",
+                "Only a paid Order is refunded: this one was never paid, or was reversed."), request);
+    }
+
+    /** The line carries Asaas's codes; the Admin reads Asaas's own descriptions in {@code reasons}. */
+    @ExceptionHandler(RefundRefusedException.class)
+    ResponseEntity<Object> refundRefused(RefundRefusedException refusal, HttpServletRequest request) {
+        log.warn("Refused {} {}: refund-refused; {}", request.getMethod(), request.getRequestURI(),
+                refusal.getMessage());
+        return respond(new Refusal(HttpStatus.CONFLICT, "refund-refused", "Refund refused",
+                "The payment provider refused the refund, for the reasons it gave; nothing changed."),
+                new HttpHeaders(), Map.of("reasons", refusal.reasons()));
+    }
+
     /** The line says which call failed and how, for whoever looks into it; Asaas being away is not our fault. */
     @ExceptionHandler(PaymentUnavailableException.class)
     ResponseEntity<Object> paymentUnavailable(PaymentUnavailableException refusal, HttpServletRequest request) {

@@ -1,5 +1,6 @@
 package com.devlabs.aulaflix.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,12 @@ public interface EnrollmentRepository extends JpaRepository<EnrollmentEntity, Lo
             where e.student.id = :studentId and e.course.id = :courseId and e.endedAt is null""")
     Optional<EnrollmentEntity> findActiveWithCourse(@Param("studentId") long studentId,
                                                     @Param("courseId") long courseId);
+
+    /** The Enrollment the Order's payment granted, active or ended; a Duplicate payment granted none. */
+    Optional<EnrollmentEntity> findByOrderId(long orderId);
+
+    /** The Enrollments these Orders' payments granted, in one query. */
+    List<EnrollmentEntity> findByOrderIdIn(Collection<Long> orderIds);
 
     /** Holds the Enrollment's row lock until the transaction ends. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

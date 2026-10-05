@@ -90,6 +90,12 @@ public final class Asaas {
         server.stubFor(delete(urlPathMatching("/v3/payments/[^/]+")).atPriority(LOWEST_PRIORITY)
                 .willReturn(okJson("""
                         {"deleted": true, "id": "{{request.pathSegments.[2]}}"}""").withTransformers(TEMPLATE)));
+        server.stubFor(post(urlPathMatching("/v3/payments/[^/]+/refund")).atPriority(LOWEST_PRIORITY)
+                .willReturn(okJson("""
+                        {"object": "payment", "id": "{{request.pathSegments.[2]}}", "status": "REFUND_REQUESTED",
+                         "deleted": false,
+                         "refunds": [{"dateCreated": "2026-10-05 14:45:03", "status": "PENDING"}]}""")
+                        .withTransformers(TEMPLATE)));
     }
 
     /** The {@code aulaflix.asaas.*} properties that point the API at this server. */
@@ -164,6 +170,20 @@ public final class Asaas {
                 .formatted(chargeId, status, value, value, externalReference, deleted)));
     }
 
+    /**
+     * Answers every read of the charge as Asaas shows it once refunded: {@code REFUNDED}, with the one refund in its
+     * own status, {@code PENDING} until it is {@code DONE}.
+     */
+    public void chargeIsRefunded(String chargeId, String refundStatus, int valueCents, String externalReference) {
+        BigDecimal value = BigDecimal.valueOf(valueCents, 2);
+        answerChargeReadsWith(chargeId, okJson("""
+                {"object": "payment", "id": "%s", "customer": "cus_000000000001", "billingType": "PIX",
+                 "status": "REFUNDED", "value": %s, "netValue": %s, "externalReference": "%s", "deleted": false,
+                 "refunds": [{"dateCreated": "2026-10-05 14:45:03", "status": "%s", "value": %s,
+                              "description": null}]}"""
+                .formatted(chargeId, value, value, externalReference, refundStatus, value)));
+    }
+
     /** Answers every read of the charge this way: with a fault, an error status, too late, … */
     public void answerChargeReadsWith(String chargeId, ResponseDefinitionBuilder answer) {
         server.stubFor(get(urlPathEqualTo("/v3/payments/" + chargeId)).willReturn(answer));
@@ -187,6 +207,22 @@ public final class Asaas {
                 .willReturn(answer));
     }
 
+    /** Answers the next refund of the charge this way, then as before. */
+    public void answerNextRefundOf(String chargeId, ResponseDefinitionBuilder answer) {
+        server.stubFor(once("refund " + chargeId,
+                post(urlPathEqualTo("/v3/payments/%s/refund".formatted(chargeId)))).willReturn(answer));
+    }
+
+    /** How many times the charge was refunded. */
+    public int refundsOf(String chargeId) {
+        return server.findAll(postRequestedFor(urlPathEqualTo("/v3/payments/%s/refund".formatted(chargeId)))).size();
+    }
+
+    /** The bodies of the refunds of the charge, in the order they were sent. */
+    public List<String> refundRequestsOf(String chargeId) {
+        return bodies(server.findAll(postRequestedFor(urlPathEqualTo("/v3/payments/%s/refund".formatted(chargeId)))));
+    }
+
     /** How many times a charge was read by no id at all, as a read of a charge the API never got the id of would be. */
     public int readsWithoutAChargeId() {
         return server.findAll(getRequestedFor(urlPathMatching("/v3/payments/(null)?"))).size();
@@ -205,6 +241,12 @@ public final class Asaas {
     /** An answer that comes after the application stopped waiting. */
     public static ResponseDefinitionBuilder tooLate() {
         return okJson("{}").withFixedDelay((int) TIMEOUT.multipliedBy(2).toMillis());
+    }
+
+    /** An error as Asaas words one, with its description. */
+    public static ResponseDefinitionBuilder error(int status, String code, String description) {
+        return aResponse().withStatus(status).withHeader("Content-Type", "application/json").withBody("""
+                {"errors": [{"code": "%s", "description": "%s"}]}""".formatted(code, description));
     }
 
     /** An error as Asaas words one: {@code {"errors": [{"code", "description"}]}}. */
