@@ -22,6 +22,7 @@ import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.dto.VideoLinkRequest;
 import com.devlabs.aulaflix.dto.VideoPlayback;
 import com.devlabs.aulaflix.dto.VideoUpload;
+import com.devlabs.aulaflix.exception.EnrollmentRequiredException;
 import com.devlabs.aulaflix.exception.LessonNotFoundException;
 import com.devlabs.aulaflix.exception.SessionRequiredException;
 import com.devlabs.aulaflix.exception.VideoNotFoundException;
@@ -46,13 +47,15 @@ public class VideoService {
     private final CatalogLocks locks;
     private final VideoStorage storage;
     private final ApplicationEventPublisher events;
+    private final EnrollmentService enrollments;
 
     public VideoService(LessonRepository lessons, CatalogLocks locks, VideoStorage storage,
-                        ApplicationEventPublisher events) {
+                        ApplicationEventPublisher events, EnrollmentService enrollments) {
         this.lessons = lessons;
         this.locks = locks;
         this.storage = storage;
         this.events = events;
+        this.enrollments = enrollments;
     }
 
     /** For a Lesson in any state. Nothing is stored: the key only names the upload to come. */
@@ -99,8 +102,8 @@ public class VideoService {
 
     /**
      * A published Lesson of an On sale Course, for anyone but an Admin, whom the security chain refuses first: the Free
-     * lesson plays without a session, and any other Lesson needs one. A published Lesson always has its video. Past
-     * the session, only a Student's could get here, and their Enrollment would decide; but no Student can sign in yet.
+     * lesson plays without a session, and any other Lesson needs a Student's session and an active Enrollment in its
+     * Course. A published Lesson always has its video.
      */
     @Transactional(readOnly = true)
     public VideoPlayback playback(String lessonId, Optional<AuthenticatedAccount> viewer) {
@@ -109,10 +112,11 @@ public class VideoService {
         if (lesson.isFreeLesson()) {
             return playbackOf(lesson.getVideoObjectKey());
         }
-        if (viewer.isEmpty()) {
-            throw new SessionRequiredException();
+        long studentId = viewer.orElseThrow(SessionRequiredException::new).accountId();
+        if (!enrollments.isActivelyEnrolled(studentId, lesson.getCourse().getId())) {
+            throw new EnrollmentRequiredException();
         }
-        throw new IllegalStateException("Students have no sessions yet");
+        return playbackOf(lesson.getVideoObjectKey());
     }
 
     /** Signed afresh with the read-only key, so that the URL only ever reads the one object. */

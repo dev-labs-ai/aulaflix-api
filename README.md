@@ -37,16 +37,36 @@ console is not published.
 Mailpit catches every email the API sends locally: its SMTP server listens on 127.0.0.1:1025, without TLS, which is
 where the default `spring.mail.*` points, and its inbox is at <http://localhost:8025>.
 
+The secret files, and the services that mount them:
+
+| File in `./secrets/` | Mounted by |
+|---|---|
+| `spring.datasource.password` | postgres, api |
+| `aulaflix.bff.key` | api, web |
+| `aulaflix.storage.read-only.access-key-id`, `aulaflix.storage.read-only.secret-access-key` | storage-init, api |
+| `aulaflix.storage.read-write.access-key-id`, `aulaflix.storage.read-write.secret-access-key` | storage-init, api |
+| `storage.root-user`, `storage.root-password` | storage, storage-init |
+| `minio.license` | storage |
+
+Compose mounts each file as it is on the host, with its owner and mode, and the API's image runs as the unprivileged
+user 10001, so a file the `api` service mounts must be readable by that user: `chmod 644 secrets/*` locally, which is
+what the commands above already give under the usual `umask 022`. No secret goes in an environment variable, so none
+shows in `docker inspect`.
+
 ## Creating an Admin
 
-No HTTP endpoint creates an Admin. The jar does, when `admin` is its first argument:
+No HTTP endpoint creates an Admin. The jar does, when `admin` is its first argument, and so does the API's image,
+which runs the jar:
 
 ```shell
 ./mvnw -DskipTests package
 java -jar target/aulaflix-api-0.0.1-SNAPSHOT.jar admin create --email you@example.com --name "Your Name"
+# or, in the image, against the Compose stack's database
+docker compose run --rm api admin create --email you@example.com --name "Your Name"
 ```
 
-It asks for the password twice without echoing it, so it needs a terminal. It starts no web server and no scheduled
+It asks for the password twice without echoing it, so it needs a terminal: `docker compose run` allocates one by
+default, and with `-T`, or from a script, the command refuses and creates nothing. It starts no web server and no scheduled
 job, and it never migrates: while a migration is pending it refuses, so start the API once first. Like every new
 password, it must not be one HIBP has seen in a breach (see [Student accounts](#student-accounts)).
 
@@ -122,6 +142,22 @@ and deletes every other object under its prefix, abandoned uploads included; the
 publishes. `GET /v1/admin/lessons/{lessonId}/playback` answers a URL that plays the linked video for 4 hours, in any
 state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes its videos too.
 
+## Granting Enrollments by hand
+
+`POST /v1/admin/enrollments` `{ "email": …, "courseId": …, "note": … }` gives a Student every published Lesson of a
+Course, for example after a chargeback won in the Asaas UI, or as a courtesy. The note, up to 500 characters, is
+required: it is the only record of why. The email must be a Student's: one with no Account, or an Admin's, gets 409
+`student-account-required`, and the person signs up first. A Draft or unknown Course gets 409
+`course-not-enrollable`, and a Student who already has an active Enrollment in the Course gets 409
+`already-enrolled`. A Coming soon Course takes Enrollments too; its Lessons play from the launch. No email is sent:
+tell the Student.
+
+`PUT /v1/admin/enrollments/{id}/status` `{ "status": "ENDED", "note": … }` ends it, and the Student loses every Lesson
+but the Free one. The ending is final: the Enrollment stays, ended, and access comes back only through a new grant.
+`GET /v1/admin/enrollments` lists every Enrollment, newest first, with who granted it and why, and how it ended: 20 to
+a page by default (`page`, from 0, and `size`, at most 100), filtered by any of `email`, `courseId` and
+`active=true|false`. `GET /v1/admin/enrollments/{id}` reads one.
+
 ## The public catalog
 
 The BFF reads the catalog with `GET /v1/courses` and `GET /v1/courses/{slug}`, without a session. A Draft answers like
@@ -142,7 +178,8 @@ curl -H "AulaFlix-BFF-Key: $(cat secrets/aulaflix.bff.key)" -H "AulaFlix-Client-
 with the read-only key on every call, valid for 4 hours (`aulaflix.storage.playback-url-lifetime`), and answered with
 `Cache-Control: no-store`. Only a published Lesson of an On sale Course plays; any other answers 404
 `lesson-not-found`, an id of any shape included. The Free lesson plays for anyone, without a session, and any other
-Lesson answers 401 without one. The session is optional, but a token that is sent must be valid, even for the Free
+Lesson answers 401 without one, and 409 `enrollment-required` to a Student without an active Enrollment in its
+Course. The session is optional, but a token that is sent must be valid, even for the Free
 lesson, and an Admin's gets a 403: the Admin previews through their own endpoint. Without a session, one IP gets 30
 plays an hour, whatever they answer (`aulaflix.rate-limits.visitor-playback.*`), on top of the 600 requests a minute
 every BFF request counts against.
@@ -188,6 +225,181 @@ Mailpit, without TLS. Production points `spring.mail.host` at `email-smtp.sa-eas
 the SES SMTP credentials as the secret files `spring.mail.username` and `spring.mail.password`, and requires STARTTLS:
 `spring.mail.properties.mail.smtp.auth`, `….starttls.enable` and `….starttls.required` set to `true`. SES's ports 465
 and 2465 take `spring.mail.ssl.enabled=true` instead.
+
+## The API's image and the `full` profile
+
+The `Dockerfile` builds the API's image: the jar on a JRE, run as the unprivileged user 10001, with the heap at 75% of
+the container's memory limit. `docker stop` ends it gracefully: the JVM gets the SIGTERM, Spring Boot lets the
+requests in flight finish, for 30 seconds at most, and Compose waits 40 before it kills.
+
+The `full` profile adds the API's image, built from this repository, and the web's, from `aulaflix-web`'s private
+image on GHCR, so the Admin rehearses Course JSON files against the whole stack before production. The API waits for
+PostgreSQL and the storage to be healthy and for `storage-init` to complete; it reaches the storage at
+`storage:9000`, but signs URLs for `localhost:9000`, where curl and the browser reach it. Its emails go to Mailpit at
+`mailpit:1025`, and show in its inbox at <http://localhost:8025>.
+
+```shell
+cp .env.example .env              # the web image's tag; nothing secret
+docker login ghcr.io              # with a GitHub token that has read:packages
+docker compose --profile full up -d --build
+```
+
+The API answers on `127.0.0.1:8080` and the web on `http://localhost:3001`. The web takes its config as `NUXT_*` variables: `NUXT_API_BASE_URL`, the Turnstile site key,
+and `NUXT_BFF_KEY`, which the `web` service reads from `secrets/aulaflix.bff.key` as Nuxt's server starts, so it stays
+out of the Compose file and of `docker inspect`. The API applies its migrations as it starts; then create the Admin:
+
+```shell
+docker compose run --rm api admin create --email you@example.com --name "Your Name"
+```
+
+### Rehearsing a Course
+
+The Course's document is a JSON file (see [Authoring a Course](#authoring-a-course)), say `course.json`, with every
+field but `freeLessonId`, which needs the Lesson first:
+
+```json
+{
+  "slug": "git-do-zero",
+  "title": "Git do zero",
+  "summary": "Versione seu código com Git, do primeiro commit ao pull request.",
+  "area": "DEVOPS", "icon": "CONTAINER", "tone": "SAGE",
+  "about": ["Um curso prático sobre o Git do dia a dia."],
+  "learn": ["Criar commits", "Trabalhar com branches"],
+  "audience": ["Quem está começando a programar"],
+  "plannedTopics": ["Commits", "Branches"],
+  "faq": [{ "question": "Preciso instalar algo?", "answer": "Só o Git." }],
+  "priceCents": 19700, "pixDiscountPercent": 10, "maxInstallments": 1
+}
+```
+
+Then, with `curl` and `jq`:
+
+```shell
+API=http://localhost:8080
+read -rsp 'Password: ' PASSWORD; echo
+TOKEN=$(jq -n --arg email you@example.com --arg password "$PASSWORD" '{$email, $password}' \
+    | curl -sf -H 'Content-Type: application/json' -d @- $API/v1/admin/sessions | jq -r .token)
+auth=(-H "Authorization: Bearer $TOKEN")
+json=(-H 'Content-Type: application/json')
+
+# 1. The Draft, then its whole document from the file; readiness lists what each next state still misses
+COURSE_ID=$(jq '{slug, title}' course.json | curl -sf "${auth[@]}" "${json[@]}" -d @- $API/v1/admin/courses | jq .id)
+curl -sf -X PUT "${auth[@]}" "${json[@]}" -d @course.json $API/v1/admin/courses/$COURSE_ID | jq .readiness
+
+# 2. A Module and a Lesson
+MODULE_ID=$(curl -sf "${auth[@]}" "${json[@]}" -d '{"title": "Primeiros passos"}' \
+    $API/v1/admin/courses/$COURSE_ID/modules | jq .id)
+LESSON_ID=$(curl -sf "${auth[@]}" "${json[@]}" -d '{"title": "O primeiro commit", "slug": "o-primeiro-commit"}' \
+    $API/v1/admin/modules/$MODULE_ID/lessons | jq .id)
+
+# 3. The video: upload it straight to the storage, link it, and publish the Lesson
+UPLOAD=$(curl -sf -X POST "${auth[@]}" $API/v1/admin/lessons/$LESSON_ID/video-uploads)
+curl -sf --upload-file aula.mp4 -H 'Content-Type: video/mp4' "$(jq -r .uploadUrl <<<"$UPLOAD")"
+jq '{objectKey}' <<<"$UPLOAD" | curl -sf -X PUT "${auth[@]}" "${json[@]}" -d @- $API/v1/admin/lessons/$LESSON_ID/video
+curl -sf -X PUT "${auth[@]}" "${json[@]}" -d '{"status": "PUBLISHED"}' $API/v1/admin/lessons/$LESSON_ID/status
+
+# 4. The Free lesson, then On sale
+jq --argjson lesson $LESSON_ID '.freeLessonId = $lesson' course.json \
+    | curl -sf -X PUT "${auth[@]}" "${json[@]}" -d @- $API/v1/admin/courses/$COURSE_ID | jq .readiness
+curl -sf -X PUT "${auth[@]}" "${json[@]}" -d '{"status": "ON_SALE"}' $API/v1/admin/courses/$COURSE_ID/status
+```
+
+The Course now shows at `http://localhost:3001/cursos/git-do-zero`, with its price, its Syllabus and the Free lesson,
+which plays. When the API refuses the file, `curl -sf` hides why: drop the `f` to see the `ProblemDetail`, fix the
+file and `PUT` it again. `docker compose --profile full down -v` throws the rehearsal away, volumes included.
+
+## Deploying to production
+
+Production is one VPS (ADR 0003), and each repository deploys its own image, so a web change never redeploys the API.
+This repository carries:
+
+- `deploy/compose.yaml`: the API, PostgreSQL, the storage and `storage-init`. PostgreSQL lives only on
+  `aulaflix-data`, which is `internal: true`; the API and the storage also join `edge-aulaflix`, the external network
+  the web and the edge share. The only published port is the API's, on the VPS's `127.0.0.1:8080`, for the SSH tunnel.
+- `src/main/resources/application-production.properties`: every non-secret production setting, inside the image, turned
+  on by `SPRING_PROFILES_ACTIVE=production` in the Compose file.
+- `deploy/.env.example`: the image tag, and the list of secret files.
+- `deploy/nginx/`: the AulaFlix server blocks for `vps-edge`, and the njs key that counts media connections per IPv4
+  address or IPv6 /64. `EdgeServerBlocksTest` runs them in the nginx image, with `nginx -t` among its checks.
+- `.github/workflows/deploy.yml`: on every push to `main`, the tests, then the image, pushed to GHCR under the commit's
+  SHA, then `docker compose pull api && docker compose up -d api` over SSH.
+
+### Setting up the VPS, once
+
+```shell
+# The repository, for deploy/ and storage/ (the API itself comes from GHCR), and the network the edge and web share
+sudo install -d -o deploy -g deploy /srv/aulaflix
+git clone https://github.com/dev-labs-ai/aulaflix-api.git /srv/aulaflix/aulaflix-api
+docker network create --ipv6 edge-aulaflix
+docker login ghcr.io       # with a GitHub token that has read:packages only, since the image is private
+
+# The secrets: mode 600, in a directory only root enters. Paste each value given by a provider, then Ctrl-D
+sudo install -d -m 700 /srv/aulaflix/secrets
+sudo sh -c 'cd /srv/aulaflix/secrets && umask 077
+    openssl rand -base64 24 > spring.datasource.password
+    openssl rand -base64 32 > aulaflix.bff.key
+    openssl rand -hex 10 > storage.root-user
+    openssl rand -hex 24 > storage.root-password
+    for key in read-only read-write; do
+        openssl rand -hex 10 > aulaflix.storage.$key.access-key-id
+        openssl rand -hex 20 > aulaflix.storage.$key.secret-access-key
+    done
+    openssl rand -base64 32 > aulaflix.codes.hmac-key
+    openssl rand -base64 32 > aulaflix.waitlist.unsubscribe-key'
+for name in aulaflix.asaas.api-key aulaflix.asaas.webhook-token spring.mail.username spring.mail.password \
+        aulaflix.turnstile.secret-key minio.license; do
+    sudo sh -c "umask 077; cat > /srv/aulaflix/secrets/$name"
+done
+# The API's image runs as uid 10001, and Compose mounts each file with its owner and mode, so the files the API reads
+# become 10001's, still mode 600. The rest stay root's, read only by the root-run storage and storage-init.
+sudo sh -c 'cd /srv/aulaflix/secrets && chown 10001:10001 $(ls | grep -v -x -e minio.license -e storage.root-user \
+    -e storage.root-password)'
+
+cd /srv/aulaflix/aulaflix-api/deploy
+cp .env.example .env       # then set AULAFLIX_API_TAG to a commit GitHub Actions has pushed
+docker compose up -d
+docker compose run --rm api admin create --email you@example.com --name "Your Name"
+```
+
+`deploy/.env.example` lists every secret file, who reads it and what it holds. The unsubscribe key must survive every
+redeploy: a new one breaks the links in emails already sent. If the web runs as a user other than root or 10001, give
+`aulaflix.bff.key`, which its Compose file mounts too, the web's group and mode 640.
+
+In GitHub, the repository secret `MINIO_LICENSE` holds the license for the tests, and the `production` environment
+holds the deploy's SSH access: `VPS_HOST`, `VPS_USER` (in the `docker` group, owning `deploy/.env`), `VPS_SSH_KEY` (a
+key for this workflow alone) and `VPS_KNOWN_HOSTS` (`ssh-keyscan` of the VPS, checked before anything is sent).
+
+### Every deploy, and what it leaves alone
+
+The workflow rewrites `AULAFLIX_API_TAG` in `deploy/.env`, pulls that image and recreates the API container alone:
+PostgreSQL and the storage keep running, and `storage-init` runs again, which changes nothing. The API is one
+container, so a deploy brings seconds of downtime.
+
+The workflow never touches the clone. When `deploy/` or `storage/` change, pull them and apply them by hand:
+
+```shell
+cd /srv/aulaflix/aulaflix-api && git pull --ff-only && cd deploy && docker compose up -d
+```
+
+The owner reaches PostgreSQL with `docker compose exec postgres psql -U aulaflix`, the storage with `mc` in
+`docker compose run --rm --entrypoint sh storage-init` (setting its alias as `storage/init.sh` does), and the Admin
+endpoints and Swagger UI through `ssh -L 8080:127.0.0.1:8080`.
+
+### The edge
+
+`vps-edge` includes `deploy/nginx/aulaflix.conf` in its `http` block, mounts `aulaflix-media.js` at
+`/etc/nginx/njs/`, loads `ngx_http_js_module` in its main context, joins `edge-aulaflix`, and serves certbot's
+webroot from `/var/www/certbot` with one certificate for the four names at `/etc/letsencrypt/live/aulaflix.com.br/`.
+
+- `aulaflix.com.br` sends every path to `web:3000`; `www` answers 301 to it.
+- `media.aulaflix.com.br` passes only `GET`, `HEAD` and `PUT` under `/videos/` to `storage:9000`, with the `Host` the
+  URL was signed for. A `GET` or `HEAD` counts against 6 connections per client and slows to 1 MB/s after its first
+  4 MB; an upload, up to 5 GiB, streams through unlimited. The access log keeps the path without the presigned query.
+- `api.aulaflix.com.br` passes only `POST /v1/webhooks/asaas`, from Asaas's four production IPs, with a 256 KB body
+  limit, and blanks `AulaFlix-BFF-Key` and `AulaFlix-Client-IP`. Register the webhook in Asaas at
+  `https://api.aulaflix.com.br/v1/webhooks/asaas`.
+- Port 80 answers the ACME challenge on every name and sends the rest to HTTPS; on `api`, the rest gets a 404. Every
+  proxied request carries `X-Forwarded-For $remote_addr`, and every HTTPS answer HSTS, without `includeSubDomains`.
 
 ## Tests
 

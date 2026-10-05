@@ -65,9 +65,11 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(QueryParametersNotAllowedException.class)
-    ResponseEntity<Object> queryParametersNotAllowed(HttpServletRequest request) {
-        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-request", "Invalid request",
-                "This endpoint takes no query parameters."), request);
+    ResponseEntity<Object> queryParametersNotAllowed(QueryParametersNotAllowedException refusal,
+                                                     HttpServletRequest request) {
+        String detail = refusal.allowed().isEmpty() ? "This endpoint takes no query parameters."
+                : "This endpoint takes only these query parameters: %s.".formatted(String.join(", ", refusal.allowed()));
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-request", "Invalid request", detail), request);
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)
@@ -245,6 +247,42 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
         return refuse(new Refusal(HttpStatus.CONFLICT, "price-not-divisible-by-installments",
                 "Price not divisible by installments",
                 "priceCents must be divisible by maxInstallments, so that every installment is exact."), request);
+    }
+
+    @ExceptionHandler(StudentAccountRequiredException.class)
+    ResponseEntity<Object> studentAccountRequired(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "student-account-required", "Student Account required",
+                "No Student Account has this email: the person signs up first."), request);
+    }
+
+    @ExceptionHandler(CourseNotEnrollableException.class)
+    ResponseEntity<Object> courseNotEnrollable(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "course-not-enrollable", "Course not enrollable",
+                "Only a Coming soon or On sale Course takes Enrollments."), request);
+    }
+
+    @ExceptionHandler(AlreadyEnrolledException.class)
+    ResponseEntity<Object> alreadyEnrolled(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "already-enrolled", "Already enrolled",
+                "The Student already has an active Enrollment in this Course."), request);
+    }
+
+    @ExceptionHandler(EnrollmentNotFoundException.class)
+    ResponseEntity<Object> enrollmentNotFound(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "enrollment-not-found", "Enrollment not found",
+                "No Enrollment has this id."), request);
+    }
+
+    @ExceptionHandler(EnrollmentEndedException.class)
+    ResponseEntity<Object> enrollmentEnded(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "enrollment-ended", "Enrollment ended",
+                "An ending is final: grant a new Enrollment to give access back."), request);
+    }
+
+    @ExceptionHandler(EnrollmentRequiredException.class)
+    ResponseEntity<Object> enrollmentRequired(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "enrollment-required", "Enrollment required",
+                "This needs an active Enrollment in the Course."), request);
     }
 
     /**

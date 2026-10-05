@@ -48,7 +48,7 @@ public class PlaybackController {
             A presigned `GET` of the video of a published Lesson of an On sale Course, signed on every call with a \
             key that only reads. A plain `<video>` element plays it, seeking through range requests; when it fails \
             once expired, ask for a new one and resume at `currentTime`. The Free lesson plays for anyone, without a \
-            session; any other Lesson needs one. A token that is sent must be valid, even for the Free lesson: on \
+            session; any other Lesson needs a Student's session and an active Enrollment in its Course. A token that is sent must be valid, even for the Free lesson: on \
             its 401, clear the cookie and ask again without it. Without a session, each IP gets a limited number of \
             plays an hour, whatever they answer.""")
     @ApiResponse(responseCode = "200", description = "Where to play it from",
@@ -57,6 +57,9 @@ public class PlaybackController {
     @ApiResponse(responseCode = "403", description = "`forbidden`: an Admin's session, even for the Free lesson")
     @ApiResponse(responseCode = "404", description = """
             `lesson-not-found`: no Lesson has the id, or it is "Em breve", or its Course is not On sale""")
+    @ApiResponse(responseCode = "409", description = """
+            `enrollment-required`: a Student without an active Enrollment in the Course asked for any Lesson but the \
+            Free one""")
     public ResponseEntity<VideoPlayback> playback(@PathVariable String lessonId,
                                                   @AuthenticationPrincipal AuthenticatedAccount viewer) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())

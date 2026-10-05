@@ -1,0 +1,190 @@
+package com.devlabs.aulaflix.service;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Optional;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.devlabs.aulaflix.domain.CourseStatus;
+import com.devlabs.aulaflix.domain.EnrollmentStatus;
+import com.devlabs.aulaflix.domain.entity.AccountEntity;
+import com.devlabs.aulaflix.domain.entity.CourseEntity;
+import com.devlabs.aulaflix.domain.entity.EnrollmentEntity;
+import com.devlabs.aulaflix.domain.entity.Role;
+import com.devlabs.aulaflix.dto.AccountSummary;
+import com.devlabs.aulaflix.dto.AdminEnrollment;
+import com.devlabs.aulaflix.dto.CourseSummary;
+import com.devlabs.aulaflix.dto.EnrollmentStatusChange;
+import com.devlabs.aulaflix.dto.ManualEnrollmentRequest;
+import com.devlabs.aulaflix.dto.PageResponse;
+import com.devlabs.aulaflix.exception.AlreadyEnrolledException;
+import com.devlabs.aulaflix.exception.CourseNotEnrollableException;
+import com.devlabs.aulaflix.exception.EnrollmentEndedException;
+import com.devlabs.aulaflix.exception.EnrollmentNotFoundException;
+import com.devlabs.aulaflix.exception.FieldViolation;
+import com.devlabs.aulaflix.exception.InvalidRequestException;
+import com.devlabs.aulaflix.exception.StudentAccountRequiredException;
+import com.devlabs.aulaflix.repository.AccountRepository;
+import com.devlabs.aulaflix.repository.CourseRepository;
+import com.devlabs.aulaflix.repository.EnrollmentRepository;
+
+/**
+ * The Enrollments module: a Student's right to watch a Course, granted with an origin and ended with a reason. A
+ * Student has at most one active Enrollment per Course; one that ended stays, and access comes back only through a new
+ * one. Every grant holds the Student's row lock, so that two grants of one Student go one at a time and the second sees
+ * the first.
+ */
+@Service
+public class EnrollmentService {
+
+    private static final Logger log = LoggerFactory.getLogger(EnrollmentService.class);
+
+    private final EnrollmentRepository repository;
+    private final AccountRepository accounts;
+    private final CourseRepository courses;
+    private final Clock clock;
+
+    public EnrollmentService(EnrollmentRepository repository, AccountRepository accounts, CourseRepository courses,
+                             Clock clock) {
+        this.repository = repository;
+        this.accounts = accounts;
+        this.courses = courses;
+        this.clock = clock;
+    }
+
+    /** Whether the Student may watch the Course's Lessons now. */
+    @Transactional(readOnly = true)
+    public boolean isActivelyEnrolled(long studentId, long courseId) {
+        return repository.existsByStudentIdAndCourseIdAndEndedAtIsNull(studentId, courseId);
+    }
+
+    /**
+     * Grants an Enrollment by hand to the Student with the email, in a Coming soon or On sale Course, with the note that
+     * is the only record of why. It sends no email: the Admin tells the Student.
+     */
+    @Transactional
+    public AdminEnrollment grantManually(long adminId, ManualEnrollmentRequest request) {
+        AccountEntity student = accounts
+                .findLockedByEmailAndRole(AccountInputRules.normalizeEmail(request.email()), Role.STUDENT)
+                .orElseThrow(StudentAccountRequiredException::new);
+        CourseEntity course = courses.findById(request.courseId())
+                .filter(found -> found.getStatus() != CourseStatus.DRAFT)
+                .orElseThrow(CourseNotEnrollableException::new);
+        AccountEntity admin = accounts.findById(adminId).orElseThrow();
+        EnrollmentEntity enrollment = start(EnrollmentEntity.grantedManually(student, course, now(), admin,
+                request.note().strip()));
+        log.info("Admin {} granted Enrollment {} to Student {} in Course {}", adminId, enrollment.getId(),
+                student.getId(), course.getId());
+        return adminView(enrollment);
+    }
+
+    /**
+     * Newest first. Each filter is optional: the Student's email, matched trimmed and lower-cased; the Course's id, of
+     * any shape, which matches nothing unless some Course could have it; and whether the Enrollment is active,
+     * {@code true} or {@code false}. Only the page and its size are taken from the request: the order is fixed.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<AdminEnrollment> list(String email, String courseId, String active, Pageable pageable) {
+        Boolean onlyActive = parseActive(active);
+        Pageable page = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        Optional<Long> course = Optional.ofNullable(courseId).flatMap(PathIds::parse);
+        if (courseId != null && course.isEmpty()) {
+            return pageOf(Page.empty(page));
+        }
+        String student = email == null ? null : AccountInputRules.normalizeEmail(email);
+        return pageOf(repository.search(student, course.orElse(null), onlyActive, page));
+    }
+
+    /** Takes the id as the path carries it, so that an id of any shape answers like an unknown one. */
+    @Transactional(readOnly = true)
+    public AdminEnrollment get(String enrollmentId) {
+        return PathIds.parse(enrollmentId).flatMap(repository::findWithPartiesById)
+                .map(EnrollmentService::adminView)
+                .orElseThrow(EnrollmentNotFoundException::new);
+    }
+
+    /**
+     * Ends a manual Enrollment by hand, with a note. The ending is final, and sending the state the Enrollment is already
+     * in changes nothing, so a retried ending is harmless and keeps the first one's note. The Enrollment's lock makes
+     * two endings go one at a time.
+     */
+    @Transactional
+    public AdminEnrollment changeStatus(long adminId, String enrollmentId, EnrollmentStatusChange change) {
+        EnrollmentEntity enrollment = PathIds.parse(enrollmentId).flatMap(repository::findLockedById)
+                .orElseThrow(EnrollmentNotFoundException::new);
+        EnrollmentStatus current = statusOf(enrollment);
+        if (change.status().compareTo(current) < 0) {
+            throw new EnrollmentEndedException();
+        }
+        if (change.status() == current) {
+            return adminView(enrollment);
+        }
+        enrollment.endManually(now(), accounts.findById(adminId).orElseThrow(), change.note().strip());
+        log.info("Admin {} ended Enrollment {}", adminId, enrollment.getId());
+        return adminView(enrollment);
+    }
+
+    /** Under the Student's lock, which the caller holds. */
+    private EnrollmentEntity start(EnrollmentEntity enrollment) {
+        if (isActivelyEnrolled(enrollment.getStudent().getId(), enrollment.getCourse().getId())) {
+            throw new AlreadyEnrolledException();
+        }
+        return repository.save(enrollment);
+    }
+
+    /** Cut to the microseconds PostgreSQL keeps, so that an answer shows what every later read will. */
+    private Instant now() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    /** Only {@code true} or {@code false}, or no filter at all. */
+    private static Boolean parseActive(String active) {
+        if (active == null) {
+            return null;
+        }
+        return switch (active) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new InvalidRequestException(List.of(new FieldViolation("active", "invalid-format")));
+        };
+    }
+
+    private static PageResponse<AdminEnrollment> pageOf(Page<EnrollmentEntity> found) {
+        return new PageResponse<>(found.map(EnrollmentService::adminView).getContent(), found.getNumber(),
+                found.getSize(), found.getTotalElements(), found.getTotalPages());
+    }
+
+    private static AdminEnrollment adminView(EnrollmentEntity enrollment) {
+        CourseEntity course = enrollment.getCourse();
+        return new AdminEnrollment(
+                enrollment.getId(),
+                statusOf(enrollment),
+                summaryOf(enrollment.getStudent()),
+                new CourseSummary(course.getId(), course.getSlug(), course.getTitle(), course.getStatus()),
+                enrollment.getStartedAt(),
+                enrollment.getOrigin(),
+                summaryOf(enrollment.getGrantedBy()),
+                enrollment.getGrantNote(),
+                enrollment.getEndedAt(),
+                enrollment.getEndReason(),
+                summaryOf(enrollment.getEndedBy()),
+                enrollment.getEndNote());
+    }
+
+    private static EnrollmentStatus statusOf(EnrollmentEntity enrollment) {
+        return enrollment.isActive() ? EnrollmentStatus.ACTIVE : EnrollmentStatus.ENDED;
+    }
+
+    private static AccountSummary summaryOf(AccountEntity account) {
+        return account == null ? null : new AccountSummary(account.getId(), account.getEmail(), account.getName());
+    }
+}

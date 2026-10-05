@@ -1,5 +1,7 @@
 # The API's dependencies for local development. The API itself runs from the IDE or with ./mvnw spring-boot:run.
+# The `full` profile adds the API and web images, for the Admin's content rehearsal: docker compose --profile full up
 # Each secret is a git-ignored file in ./secrets/, named after the property it sets, and mounted at /run/secrets/.
+# Optional settings, none of them secret, go in a git-ignored .env file; see .env.example.
 name: aulaflix
 
 services:
@@ -69,9 +71,71 @@ services:
       - "127.0.0.1:1025:1025"
       - "127.0.0.1:8025:8025"
 
+  # The API's image, built from this repository. `docker compose run --rm api admin …` runs the admin command in it,
+  # with a terminal for the password. Only what differs from the IDE's run is set here, and nothing secret.
+  api:
+    profiles: [full]
+    build: .
+    image: aulaflix-api:local
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/aulaflix
+      # aulaflix.storage.internal-endpoint: the API reads and deletes at storage:9000, but signs URLs for the default
+      # public endpoint, localhost:9000, where the browser and curl reach the storage
+      AULAFLIX_STORAGE_INTERNALENDPOINT: http://storage:9000
+      # spring.mail.*: the outbox sends to Mailpit on the Compose network, without TLS, as from the IDE
+      SPRING_MAIL_HOST: mailpit
+      SPRING_MAIL_PORT: "1025"
+    secrets:
+      - spring.datasource.password
+      - aulaflix.bff.key
+      - aulaflix.storage.read-only.access-key-id
+      - aulaflix.storage.read-only.secret-access-key
+      - aulaflix.storage.read-write.access-key-id
+      - aulaflix.storage.read-write.secret-access-key
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+      # The outbox connects only when it sends, and a failed send waits for the next try, so started is enough
+      mailpit:
+        condition: service_started
+    # The heap is 75% of it (-XX:MaxRAMPercentage=75), as in production
+    mem_limit: 1536m
+    # Longer than Spring Boot's graceful shutdown, 30 s at most, so docker stop never kills it mid-drain
+    stop_grace_period: 40s
+
+  # The web, from aulaflix-web's private image on GHCR (docker login ghcr.io first), on webBase, localhost:3001. Nuxt
+  # takes its config as NUXT_* variables: the BFF key is read from its secret file as the server starts, so it stays
+  # out of the Compose file and of docker inspect. This expects the image to have sh, and to start Nuxt's server with
+  # node .output/server/index.mjs from its working directory.
+  web:
+    profiles: [full]
+    image: ghcr.io/dev-labs-ai/aulaflix-web:${AULAFLIX_WEB_TAG:-latest}
+    entrypoint:
+      - sh
+      - -c
+      - NUXT_BFF_KEY="$$(cat /run/secrets/aulaflix.bff.key)" && export NUXT_BFF_KEY && exec node .output/server/index.mjs
+    environment:
+      NUXT_API_BASE_URL: http://api:8080
+      NUXT_PUBLIC_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-1x00000000000000000000AA}
+    secrets:
+      - aulaflix.bff.key
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      api:
+        condition: service_started
+
 secrets:
   spring.datasource.password:
     file: ./secrets/spring.datasource.password
+  aulaflix.bff.key:
+    file: ./secrets/aulaflix.bff.key
   minio.license:
     file: ./secrets/minio.license
   storage.root-user:
