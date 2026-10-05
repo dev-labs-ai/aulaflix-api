@@ -68,6 +68,15 @@ class OrderPayments {
         settle(eventId, outcomeOf(charge));
     }
 
+    /**
+     * Applies what a job's own re-read of the charge shows to its Order, as for an event, and answers whether the
+     * charge has paid the Order.
+     */
+    @Transactional
+    boolean applyReread(AsaasGateway.Charge charge) {
+        return outcomeOf(charge) == WebhookEventState.PROCESSED;
+    }
+
     @Transactional
     void settle(long eventId, WebhookEventState outcome) {
         WebhookEventEntity event = events.findById(eventId).orElseThrow();

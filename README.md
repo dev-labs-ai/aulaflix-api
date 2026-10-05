@@ -270,8 +270,8 @@ sale, `course-not-for-sale`; a Student already enrolled, `already-enrolled`.
 When Asaas is down, slower than `aulaflix.asaas.timeout`, or answers 5xx or 429, the answer is 503
 `payment-unavailable` with `Retry-After` (`aulaflix.asaas.retry-after`); any other 4xx is 502
 `payment-provider-error`, logged at ERROR. Either way the Order is cancelled, and the charge made for it is deleted at
-once: by its id, or, when Asaas never gave one, by searching its code. A charge that search misses is left to
-reconciliation.
+once: by its id, or, when Asaas never gave one, by searching its code. A charge that search misses, or that a failed
+deletion left, is deleted by reconciliation.
 
 `GET /v1/account/orders` lists the Student's Orders, newest first, without the ones never paid (expired, cancelled or
 declined) and without the QR code; `GET /v1/account/orders/{code}` reads one in any state, with the QR code while it
@@ -305,6 +305,25 @@ Asaas cannot be reached the events wait for the next run; a re-read Asaas refuse
 
 `GET /v1/admin/enrollments` shows an Enrollment an Order granted with `origin: ORDER` and its `orderCode`. It ends only
 with its Order: ending it by hand gets 409 `paid-enrollment`.
+
+### Expiry and reconciliation
+
+Two more jobs keep the Orders in step with Asaas, each resting its interval after the end of its run before, never in
+admin mode. The expiry job (`aulaflix.asaas.expiry-interval`, 1 min) takes every Order still awaiting payment at its
+`expiresAt`, 30 minutes after a Pix was placed, and re-reads its charge first: a paid charge wins, and the Order is
+paid as by the webhook, Enrollment and email included. Otherwise the charge is deleted at Asaas, and only then is the
+Order `EXPIRED`; it leaves the Student's list, nothing is emailed, and the Student's next Pix is a new Order with a new
+QR code. A payment Asaas confirms after the expiry still wins: the webhook pays an `EXPIRED` Order too.
+
+Reconciliation (`aulaflix.asaas.reconciliation-interval`, 2 min) catches lost webhooks: it re-reads the charge of every
+Order that has awaited payment longer than `aulaflix.asaas.reconciliation-delay` (5 min) and applies what it shows,
+once, however many webhooks come later. It also searches Asaas once more, after that delay, under the code of each
+Order cancelled by a failed placement that did not delete its charge by id, and deletes whatever it finds there.
+
+While Asaas cannot be reached, either job stops at the Order it was on, logs a `WARN`, and leaves it and the rest
+unchanged for the next run. A call Asaas refuses is logged at `ERROR`: the expiry job expires the Order all the same,
+reconciliation reads an awaiting Order again on its next run, until it expires, and gives up on a cancelled Order's
+charges.
 
 ## The API's image and the `full` profile
 

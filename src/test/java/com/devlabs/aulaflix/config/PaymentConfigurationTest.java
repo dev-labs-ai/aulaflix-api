@@ -39,7 +39,8 @@ class PaymentConfigurationTest {
         asaas.start();
         gateway = new PaymentConfiguration().asaasGateway(new AsaasProperties(
                 URI.create(asaas.baseUrl() + "/v3"), API_KEY, TIMEOUT, RETRY_AFTER,
-                "webhook-token-of-the-test-0123456789", Duration.ofSeconds(5)));
+                "webhook-token-of-the-test-0123456789", Duration.ofSeconds(5),
+                Duration.ofMinutes(1), Duration.ofMinutes(2), Duration.ofMinutes(5)));
     }
 
     @AfterEach

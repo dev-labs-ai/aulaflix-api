@@ -116,18 +116,22 @@ public class OrderService {
 
     /**
      * Cancels the Order, and deletes the charge Asaas made for it, or, when its id never came back, any charge made
-     * under the Order's code: a timeout may hide one that was made. When Asaas cannot answer that either,
-     * reconciliation finds the charge later.
+     * under the Order's code: a timeout may hide one that was made. Only a deletion by the charge's id settles it;
+     * reconciliation searches the code again once a charge whose creation timed out would have reached Asaas, and
+     * deletes what a failed deletion left.
      */
     private void cancel(OrderPlacements.Placement placement, Charging charging) {
-        placements.cancel(placement.orderId());
+        placements.cancel(placement.orderId(), charging.started);
         if (!charging.started) {
             return;
         }
         try {
-            List<String> charges = charging.chargeId != null ? List.of(charging.chargeId)
-                    : asaas.chargesUnder(placement.code());
-            charges.forEach(asaas::deleteCharge);
+            if (charging.chargeId != null) {
+                asaas.deleteCharge(charging.chargeId);
+                placements.chargesDeleted(placement.orderId());
+            } else {
+                asaas.chargesUnder(placement.code()).forEach(asaas::deleteCharge);
+            }
         } catch (AsaasUnavailableException | AsaasRefusedException failure) {
             log.warn("Left the charges of cancelled Order {} to reconciliation: {}", placement.code(),
                     failure.getMessage());

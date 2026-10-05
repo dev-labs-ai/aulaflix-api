@@ -175,6 +175,12 @@ public final class Asaas {
                 .willReturn(answer));
     }
 
+    /** Answers the next deletion of the charge this way, then as before. */
+    public void answerNextDeletionOf(String chargeId, ResponseDefinitionBuilder answer) {
+        server.stubFor(once("deletion " + chargeId, delete(urlPathEqualTo("/v3/payments/" + chargeId)))
+                .willReturn(answer));
+    }
+
     /** How many times the charge was read. */
     public int readsOf(String chargeId) {
         return server.findAll(getRequestedFor(urlPathEqualTo("/v3/payments/" + chargeId))).size();
