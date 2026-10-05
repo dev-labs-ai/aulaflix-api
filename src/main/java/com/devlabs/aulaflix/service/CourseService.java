@@ -3,6 +3,8 @@ package com.devlabs.aulaflix.service;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +33,8 @@ import com.devlabs.aulaflix.exception.SlugFrozenException;
 import com.devlabs.aulaflix.exception.SlugTakenException;
 import com.devlabs.aulaflix.repository.CourseRepository;
 import com.devlabs.aulaflix.repository.LessonRepository;
+import com.devlabs.aulaflix.repository.WaitlistEntryRepository;
+import com.devlabs.aulaflix.repository.WaitlistEntryRepository.WaitlistCount;
 
 /**
  * The catalog's Courses as Admins author them. Every change holds the Course's row lock, so that an edit, a move and a
@@ -43,14 +47,17 @@ public class CourseService {
 
     private final CourseRepository repository;
     private final LessonRepository lessons;
+    private final WaitlistEntryRepository waitlistEntries;
     private final CatalogLocks locks;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
-    public CourseService(CourseRepository repository, LessonRepository lessons, CatalogLocks locks,
-                         ApplicationEventPublisher events, Clock clock) {
+    public CourseService(CourseRepository repository, LessonRepository lessons,
+                         WaitlistEntryRepository waitlistEntries, CatalogLocks locks, ApplicationEventPublisher events,
+                         Clock clock) {
         this.repository = repository;
         this.lessons = lessons;
+        this.waitlistEntries = waitlistEntries;
         this.locks = locks;
         this.events = events;
         this.clock = clock;
@@ -66,11 +73,13 @@ public class CourseService {
         return adminView(course);
     }
 
-    /** Unpaginated: one person authors the catalog, a few dozen Courses at most. */
+    /** Unpaginated: one person authors the catalog, a few dozen Courses at most. Every Waitlist is counted at once. */
     @Transactional(readOnly = true)
     public AdminCourseList list() {
+        Map<Long, Long> waitlistCounts = waitlistEntries.countByCourse().stream()
+                .collect(Collectors.toMap(WaitlistCount::getCourseId, WaitlistCount::getEntries));
         return new AdminCourseList(repository.findAll(Sort.by("id")).stream()
-                .map(CourseService::adminView)
+                .map(course -> adminView(course, waitlistCounts.getOrDefault(course.getId(), 0L)))
                 .toList());
     }
 
@@ -193,7 +202,14 @@ public class CourseService {
         return list == null ? List.of() : list;
     }
 
-    private static AdminCourse adminView(CourseEntity course) {
+    private AdminCourse adminView(CourseEntity course) {
+        return adminView(course, course.getStatus() == CourseStatus.COMING_SOON
+                ? waitlistEntries.countByCourseId(course.getId())
+                : 0L);
+    }
+
+    /** The Waitlist's count shows only while the Course is Coming soon, the one state that takes entries. */
+    private static AdminCourse adminView(CourseEntity course, long waitlistCount) {
         return new AdminCourse(
                 course.getId(),
                 course.getSlug(),
@@ -213,6 +229,7 @@ public class CourseService {
                 course.getFreeLessonId(),
                 course.getStatus(),
                 readinessOf(course),
+                course.getStatus() == CourseStatus.COMING_SOON ? waitlistCount : null,
                 course.getComingSoonAt(),
                 course.getOnSaleAt());
     }

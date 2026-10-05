@@ -48,7 +48,10 @@ public record RateLimitProperties(
         Limit passwordResetCodes,
         @NotNull
         @Valid
-        Limit passwordResets) {
+        Limit passwordResets,
+        @NotNull
+        @Valid
+        Limit waitlistEntries) {
 
     /** Every BFF request, whatever it asks for, per client IP. */
     RateLimit bffRequestLimit() {
@@ -98,6 +101,11 @@ public record RateLimitProperties(
     /** Every reset with a code, whatever it answers, per client IP. */
     RateLimit passwordResetLimit() {
         return passwordResets.named("password-resets");
+    }
+
+    /** Every join of a Waitlist by email, whatever it answers, per client IP. */
+    RateLimit waitlistEntryLimit() {
+        return waitlistEntries.named("waitlist-entries");
     }
 
     /** At most {@code requests} per {@code window}, a window being at least a second. */

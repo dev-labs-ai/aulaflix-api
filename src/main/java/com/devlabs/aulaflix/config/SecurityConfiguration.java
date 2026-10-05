@@ -44,9 +44,10 @@ import com.devlabs.aulaflix.service.SessionService;
  * Student's session, here and again in their {@code @PreAuthorize}, and so do their Orders, whose placement counts
  * against the client IP's checkout limit; while looking up an email, signing up and signing in need none, and count
  * against the client IP's strictest limits; so does posting a confirmation link, which any device may do, and so do
- * asking for a reset code and resetting a password with it. Past their soft limits, per client IP or global, looking
- * up an email, signing up, signing in and asking for a reset code need a solved CAPTCHA too. Playback needs no session, and refuses only an
- * Admin's, here and again in its {@code @PreAuthorize}. Asaas's webhook needs neither the key nor a session, but
+ * asking for a reset code and resetting a password with it, and joining a Waitlist by email. Past their soft limits,
+ * per client IP or global, looking up an email, signing up, signing in, asking for a reset code and joining a Waitlist
+ * by email need a solved CAPTCHA too. Playback and joining a Waitlist by email need no session, and refuse only an
+ * Admin's, here and again in their {@code @PreAuthorize}. Asaas's webhook needs neither the key nor a session, but
  * Asaas's token. The refusals the filters make go through the same {@code @RestControllerAdvice} as every other
  * refusal.
  */
@@ -80,6 +81,8 @@ public class SecurityConfiguration {
 
     private static final String PASSWORD_RESETS = "/v1/password-resets";
 
+    private static final String WAITLIST_ENTRIES = "/v1/waitlist-entries";
+
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
                                        AsaasProperties asaas, RateLimiter limiter, RateLimitProperties limits,
@@ -112,6 +115,8 @@ public class SecurityConfiguration {
                         limits.passwordResetCodeLimit(), resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(PASSWORD_RESETS), limiter,
                         limits.passwordResetLimit(), resolver), SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(postsTo(WAITLIST_ENTRIES), limiter,
+                        limits.waitlistEntryLimit(), resolver), SessionTokenFilter.class)
                 // After every hard limit, which counts the requests that carry a solved CAPTCHA too
                 .addFilterAfter(new CaptchaFilter(postsTo(LOOK_UPS, SIGN_INS), captchas,
                         softLimits.lookUpAndSignInLimit(), resolver), SessionTokenFilter.class)
@@ -119,11 +124,14 @@ public class SecurityConfiguration {
                         SessionTokenFilter.class)
                 .addFilterAfter(new CaptchaFilter(postsTo(PASSWORD_RESET_CODES), captchas,
                         softLimits.passwordResetCodeLimit(), resolver), SessionTokenFilter.class)
+                .addFilterAfter(new CaptchaFilter(postsTo(WAITLIST_ENTRIES), captchas,
+                        softLimits.waitlistEntryLimit(), resolver), SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS, EMAIL_CONFIRMATIONS,
                                 PASSWORD_RESET_CODES, PASSWORD_RESETS).permitAll()
+                        .requestMatchers(HttpMethod.POST, WAITLIST_ENTRIES).not().hasRole("ADMIN")
                         .requestMatchers("/v1/account", "/v1/account/**", "/v1/sessions/current").hasRole("STUDENT")
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
                         .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")
