@@ -155,6 +155,17 @@ public class AsaasGateway {
                 .toBodilessEntity());
     }
 
+    /**
+     * Refunds a card sale in installments in full, every installment's charge at once: a refund of one charge would
+     * return one installment only. As for a charge, the refund is done once a re-read shows it {@code DONE}.
+     */
+    public void refundInstallmentPlan(String installmentId) {
+        call("refunding an installment plan", () -> asaas.post().uri("/installments/{id}/refund", installmentId)
+                .body(Map.of())
+                .retrieve()
+                .toBodilessEntity());
+    }
+
     private List<String> chargeIds(String operation, String filter, String value) {
         Charges charges = call(operation, () -> asaas.get()
                 .uri(uri -> uri.path("/payments").queryParam(filter, value).build())

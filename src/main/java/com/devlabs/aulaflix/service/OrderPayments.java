@@ -111,7 +111,7 @@ class OrderPayments {
         if (!charge.deleted() && PAID.contains(charge.status())) {
             if (order.pay(now())) {
                 if (order.getMethod() == PaymentMethod.CARD) {
-                    order.recordCardPayment(charge.id(), charge.installments());
+                    order.recordCardPayment(charge.id(), charge.installment(), charge.installments());
                 }
                 log.info("Order {} was paid", order.getCode());
                 grant(order);

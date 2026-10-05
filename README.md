@@ -433,7 +433,8 @@ had. An Order already `REFUNDING` or `REFUNDED` answers 200 as it is, without ca
 refuses, with 409 `refund-refused` carrying Asaas's `reasons` (`code` and `description`), nor when it cannot be
 reached, with 503 `payment-unavailable`. An Order that was never paid gets 409 `order-not-paid`. Reconciliation
 re-reads every `REFUNDING` Order's charge on each run until Asaas reports its refund `DONE`; the Order then becomes
-`REFUNDED`, with `refundedAt`.
+`REFUNDED`, with `refundedAt`. A card paid in installments is refunded through its installment plan, every
+installment at once; an Admin also sees a card Order's `installments`, `asaasCheckoutId` and `asaasInstallmentId`.
 
 ## The API's image and the `full` profile
 

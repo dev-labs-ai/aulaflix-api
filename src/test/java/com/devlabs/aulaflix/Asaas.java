@@ -114,6 +114,11 @@ public final class Asaas {
                          "deleted": false,
                          "refunds": [{"dateCreated": "2026-10-05 14:45:03", "status": "PENDING"}]}""")
                         .withTransformers(TEMPLATE)));
+        server.stubFor(post(urlPathMatching("/v3/installments/[^/]+/refund")).atPriority(LOWEST_PRIORITY)
+                .willReturn(okJson("""
+                        {"object": "installment", "id": "{{request.pathSegments.[2]}}", "deleted": false,
+                         "refunds": [{"dateCreated": "2026-10-05 14:45:03", "status": "PENDING"}]}""")
+                        .withTransformers(TEMPLATE)));
     }
 
     /** The {@code aulaflix.asaas.*} properties that point the API at this server. */
@@ -351,6 +356,12 @@ public final class Asaas {
     /** The bodies of the refunds of the charge, in the order they were sent. */
     public List<String> refundRequestsOf(String chargeId) {
         return bodies(server.findAll(postRequestedFor(urlPathEqualTo("/v3/payments/%s/refund".formatted(chargeId)))));
+    }
+
+    /** How many times the installment plan was refunded, every installment at once. */
+    public int refundsOfInstallmentPlan(String installmentId) {
+        return server.findAll(postRequestedFor(urlPathEqualTo("/v3/installments/%s/refund".formatted(installmentId))))
+                .size();
     }
 
     /** How many times a charge was read by no id at all, as a read of a charge the API never got the id of would be. */

@@ -80,7 +80,11 @@ public class AdminOrderService {
             return start.already();
         }
         try {
-            asaas.refundCharge(start.chargeId());
+            if (start.installmentId() != null) {
+                asaas.refundInstallmentPlan(start.installmentId());
+            } else {
+                asaas.refundCharge(start.chargeId());
+            }
         } catch (AsaasUnavailableException failure) {
             throw new PaymentUnavailableException("Order %s not refunded; %s".formatted(code, failure.getMessage()),
                     failure.retryAfter());

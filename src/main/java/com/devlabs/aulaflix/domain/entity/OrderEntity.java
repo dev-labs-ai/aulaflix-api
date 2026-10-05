@@ -98,6 +98,9 @@ public class OrderEntity {
     @Column(name = "installments")
     private Integer installments;
 
+    @Column(name = "asaas_installment_id", length = 64)
+    private String asaasInstallmentId;
+
     @Column(name = "refund_requested_at")
     private Instant refundRequestedAt;
 
@@ -153,12 +156,14 @@ public class OrderEntity {
     }
 
     /**
-     * The card charge that paid the Order, the first of the sale's installments Asaas showed, and how many installments
-     * the Student chose; an Order that has its charge keeps it.
+     * The card charge that paid the Order, the first of the sale's installments Asaas showed; the installment plan it
+     * is part of, null for a single payment, which a refund of the whole sale goes through; and how many installments
+     * the Student chose. An Order that has its charge keeps it.
      */
-    public void recordCardPayment(String paymentId, int installmentCount) {
+    public void recordCardPayment(String paymentId, String installmentId, int installmentCount) {
         if (asaasPaymentId == null) {
             asaasPaymentId = paymentId;
+            asaasInstallmentId = installmentId;
             installments = installmentCount;
         }
     }
@@ -324,6 +329,10 @@ public class OrderEntity {
 
     public Integer getInstallments() {
         return installments;
+    }
+
+    public String getAsaasInstallmentId() {
+        return asaasInstallmentId;
     }
 
     public Instant getRefundRequestedAt() {
