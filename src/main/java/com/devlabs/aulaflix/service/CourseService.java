@@ -29,17 +29,22 @@ import com.devlabs.aulaflix.exception.SlugFrozenException;
 import com.devlabs.aulaflix.exception.SlugTakenException;
 import com.devlabs.aulaflix.repository.CourseRepository;
 
-/** The catalog's Courses as Admins author them. */
+/**
+ * The catalog's Courses as Admins author them. Every change holds the Course's row lock, so that an edit, a move and a
+ * deletion of one Course go one at a time: a move could otherwise check a document that a concurrent edit is emptying.
+ */
 @Service
 public class CourseService {
 
     private static final Logger log = LoggerFactory.getLogger(CourseService.class);
 
     private final CourseRepository repository;
+    private final CatalogLocks locks;
     private final Clock clock;
 
-    public CourseService(CourseRepository repository, Clock clock) {
+    public CourseService(CourseRepository repository, CatalogLocks locks, Clock clock) {
         this.repository = repository;
+        this.locks = locks;
         this.clock = clock;
     }
 
@@ -73,7 +78,7 @@ public class CourseService {
      */
     @Transactional
     public AdminCourse update(long adminId, String courseId, CourseDocument document) {
-        CourseEntity course = lock(courseId);
+        CourseEntity course = locks.course(courseId);
         requireSlugChangeAllowed(course, document.slug());
         requireExactInstallments(document);
         apply(document, course);
@@ -88,7 +93,7 @@ public class CourseService {
      */
     @Transactional
     public AdminCourse changeStatus(long adminId, String courseId, CourseStatusChange change) {
-        CourseEntity course = lock(courseId);
+        CourseEntity course = locks.course(courseId);
         if (change.status().compareTo(course.getStatus()) < 0) {
             throw new CourseCannotMoveBackException();
         }
@@ -104,7 +109,7 @@ public class CourseService {
     /** Only a Draft, which no one but Admins has ever seen. */
     @Transactional
     public void delete(long adminId, String courseId) {
-        CourseEntity course = lock(courseId);
+        CourseEntity course = locks.course(courseId);
         if (course.getStatus() != CourseStatus.DRAFT) {
             throw new CourseNotDraftException();
         }
@@ -115,14 +120,6 @@ public class CourseService {
     /** Takes the id as the path carries it, so that an id of any shape answers like an unknown one. */
     private CourseEntity find(String courseId) {
         return PathIds.parse(courseId).flatMap(repository::findById).orElseThrow(CourseNotFoundException::new);
-    }
-
-    /**
-     * Holds the Course's row lock until the transaction ends, so that an edit, a move and a deletion of one Course go
-     * one at a time: a move could otherwise check a document that a concurrent edit is emptying.
-     */
-    private CourseEntity lock(String courseId) {
-        return PathIds.parse(courseId).flatMap(repository::findLockedById).orElseThrow(CourseNotFoundException::new);
     }
 
     /** The slug is the web's address for the Course, so it stays put once anyone but Admins can see it. */

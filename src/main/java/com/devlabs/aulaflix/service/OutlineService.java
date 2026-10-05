@@ -4,7 +4,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -23,10 +22,8 @@ import com.devlabs.aulaflix.dto.LessonRequest;
 import com.devlabs.aulaflix.dto.ModuleRequest;
 import com.devlabs.aulaflix.dto.OutlineModule;
 import com.devlabs.aulaflix.exception.CourseNotFoundException;
-import com.devlabs.aulaflix.exception.LessonNotFoundException;
 import com.devlabs.aulaflix.exception.LessonSlugTakenException;
 import com.devlabs.aulaflix.exception.ModuleNotEmptyException;
-import com.devlabs.aulaflix.exception.ModuleNotFoundException;
 import com.devlabs.aulaflix.exception.OutlineMismatchException;
 import com.devlabs.aulaflix.repository.CourseRepository;
 import com.devlabs.aulaflix.repository.LessonRepository;
@@ -44,11 +41,14 @@ public class OutlineService {
     private final CourseRepository courses;
     private final ModuleRepository modules;
     private final LessonRepository lessons;
+    private final CatalogLocks locks;
 
-    public OutlineService(CourseRepository courses, ModuleRepository modules, LessonRepository lessons) {
+    public OutlineService(CourseRepository courses, ModuleRepository modules, LessonRepository lessons,
+                          CatalogLocks locks) {
         this.courses = courses;
         this.modules = modules;
         this.lessons = lessons;
+        this.locks = locks;
     }
 
     @Transactional(readOnly = true)
@@ -60,7 +60,7 @@ public class OutlineService {
     /** Puts the Modules, and the Lessons within each, in the order given, moving Lessons between Modules. */
     @Transactional
     public List<OutlineModule> reorder(long adminId, String courseId, List<OutlineModule> outline) {
-        CourseEntity course = lockCourse(courseId);
+        CourseEntity course = locks.course(courseId);
         List<ModuleEntity> courseModules = modules.findByCourseIdOrderByPosition(course.getId());
         List<LessonEntity> courseLessons = lessons.findByCourseIdOrderByPosition(course.getId());
         Map<Long, ModuleEntity> modulesById = byId(courseModules, ModuleEntity::getId);
@@ -79,7 +79,7 @@ public class OutlineService {
     /** Appends the Module to the end of its Course's outline. */
     @Transactional
     public AdminModule addModule(long adminId, String courseId, ModuleRequest request) {
-        CourseEntity course = lockCourse(courseId);
+        CourseEntity course = locks.course(courseId);
         int position = modules.findNextPositionByCourseId(course.getId());
         ModuleEntity module = modules.save(new ModuleEntity(course, position, request.title()));
         log.info("Admin {} added Module {} to Course {}", adminId, module.getId(), course.getId());
@@ -88,7 +88,7 @@ public class OutlineService {
 
     @Transactional
     public AdminModule renameModule(long adminId, String moduleId, ModuleRequest request) {
-        ModuleEntity module = lockModule(moduleId);
+        ModuleEntity module = locks.module(moduleId);
         module.setTitle(request.title());
         log.info("Admin {} renamed Module {}", adminId, module.getId());
         return moduleView(module);
@@ -97,7 +97,7 @@ public class OutlineService {
     /** Only an empty Module: its Lessons are moved or deleted first, never along with it. */
     @Transactional
     public void deleteModule(long adminId, String moduleId) {
-        ModuleEntity module = lockModule(moduleId);
+        ModuleEntity module = locks.module(moduleId);
         if (lessons.existsByModuleId(module.getId())) {
             throw new ModuleNotEmptyException();
         }
@@ -108,7 +108,7 @@ public class OutlineService {
     /** Appends the Lesson to the end of its Module. */
     @Transactional
     public AdminLesson addLesson(long adminId, String moduleId, LessonRequest request) {
-        ModuleEntity module = lockModule(moduleId);
+        ModuleEntity module = locks.module(moduleId);
         requireFreeSlug(module.getCourse().getId(), request.slug());
         int position = lessons.findNextPositionByModuleId(module.getId());
         LessonEntity lesson = lessons.save(new LessonEntity(module, position, request.title(), request.slug()));
@@ -118,7 +118,7 @@ public class OutlineService {
 
     @Transactional
     public AdminLesson editLesson(long adminId, String lessonId, LessonRequest request) {
-        LessonEntity lesson = lockLesson(lessonId);
+        LessonEntity lesson = locks.lesson(lessonId);
         if (!lesson.getSlug().equals(request.slug())) {
             requireFreeSlug(lesson.getCourse().getId(), request.slug());
         }
@@ -130,7 +130,7 @@ public class OutlineService {
 
     @Transactional
     public void deleteLesson(long adminId, String lessonId) {
-        LessonEntity lesson = lockLesson(lessonId);
+        LessonEntity lesson = locks.lesson(lessonId);
         lessons.delete(lesson);
         log.info("Admin {} deleted Lesson {}", adminId, lesson.getId());
     }
@@ -161,31 +161,6 @@ public class OutlineService {
         if (lessons.existsByCourseIdAndSlug(courseId, slug)) {
             throw new LessonSlugTakenException();
         }
-    }
-
-    private CourseEntity lockCourse(String courseId) {
-        return PathIds.parse(courseId).flatMap(courses::findLockedById).orElseThrow(CourseNotFoundException::new);
-    }
-
-    private ModuleEntity lockModule(String moduleId) {
-        return underCourseLock(moduleId, modules::findCourseIdById, modules::findById)
-                .orElseThrow(ModuleNotFoundException::new);
-    }
-
-    private LessonEntity lockLesson(String lessonId) {
-        return underCourseLock(lessonId, lessons::findCourseIdById, lessons::findById)
-                .orElseThrow(LessonNotFoundException::new);
-    }
-
-    /**
-     * Locks the Course of the Module or Lesson with the id, then reads it: read before the lock, it could be as it was
-     * before the change that held the lock last.
-     */
-    private <T> Optional<T> underCourseLock(String id, Function<Long, Optional<Long>> courseIdOf,
-                                            Function<Long, Optional<T>> find) {
-        return PathIds.parse(id).flatMap(parsed -> courseIdOf.apply(parsed)
-                .flatMap(courses::findLockedById)
-                .flatMap(locked -> find.apply(parsed)));
     }
 
     /** The Modules and Lessons each in their order: the Lessons' positions order them within their Module. */
