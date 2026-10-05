@@ -4,6 +4,7 @@ import static com.devlabs.aulaflix.AdminCourses.newSlug;
 import static com.devlabs.aulaflix.Asaas.field;
 import static com.devlabs.aulaflix.AsaasWebhooks.newEventId;
 import static com.devlabs.aulaflix.AsaasWebhooks.paymentEvent;
+import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +32,7 @@ import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.Cpfs;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.Mailpit;
+import com.devlabs.aulaflix.StoredOrders;
 import com.devlabs.aulaflix.StoredOutboxEmails;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
@@ -39,6 +41,7 @@ import com.devlabs.aulaflix.service.AccountService;
 import com.devlabs.aulaflix.service.EmailOutbox;
 import com.devlabs.aulaflix.service.OrderReconciliation;
 import com.devlabs.aulaflix.service.WebhookWorker;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 
 /**
  * No paying Student waits on a lost webhook: reconciliation re-reads, from Asaas, the WireMock stub, every Order that
@@ -194,6 +197,66 @@ class OrderReconciliationTest extends IntegrationTest {
         assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("PAID");
     }
 
+    /** A refusal is that Order's alone: the run goes on to the next, and the refused one waits for its expiry. */
+    @Test
+    void goesOnToTheNextOrderWhenAsaasRefusesToReReadACharge() {
+        String refused = orders.placedPix(course, cpf);
+        asaas.answerChargeReadsWith(Asaas.chargeOf(refused), Asaas.error(404, "invalid_payment"));
+        clock.set(clock.instant().plusSeconds(1));
+        String paid = orders.placedPix(anotherCourse(), null);
+        chargeIs(paid, "CONFIRMED");
+        clock.set(clock.instant().plus(delay));
+
+        reconciliation.reconcile();
+
+        assertThat(orders.get(refused)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
+        assertThat(orders.get(paid)).bodyJson().extractingPath("$.status").isEqualTo("PAID");
+    }
+
+    /** The API stopped while placing it, before its charge's id came back: there is no charge to re-read. */
+    @Test
+    void skipsAnOrderAwaitingPaymentWithoutItsChargesId() {
+        String unknown = orders.placedPix(course, cpf);
+        new StoredOrders(jdbc).forgetCharge(unknown);
+        clock.set(clock.instant().plusSeconds(1));
+        String paid = orders.placedPix(anotherCourse(), null);
+        chargeIs(paid, "CONFIRMED");
+        clock.set(clock.instant().plus(delay));
+        int readsWithoutAnId = asaas.readsWithoutAChargeId();
+
+        reconciliation.reconcile();
+
+        assertThat(asaas.readsWithoutAChargeId()).isEqualTo(readsWithoutAnId);
+        assertThat(orders.get(unknown)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
+        assertThat(orders.get(paid)).bodyJson().extractingPath("$.status").isEqualTo("PAID");
+    }
+
+    /** A search Asaas refuses would be refused again: the cancelled Order's charges are given up on, and logged. */
+    @Test
+    void givesUpOnTheChargesOfACancelledOrderWhenAsaasRefusesToSearchThem() {
+        String code = cancelledLeavingItsCharge();
+        asaas.answerChargeSearchesUnder(code, Asaas.error(400, "invalid_externalReference"));
+        clock.set(clock.instant().plus(delay));
+        reconciliation.reconcile();
+        asaas.answerChargeSearchesUnder(code, searchFinding(Asaas.chargeOf(code)));
+
+        reconciliation.reconcile();
+
+        assertThat(asaas.deletionsOf(Asaas.chargeOf(code))).isZero();
+    }
+
+    @Test
+    void givesUpOnTheChargesOfACancelledOrderWhenAsaasRefusesToDeleteThem() {
+        String code = cancelledLeavingItsCharge();
+        asaas.answerNextDeletionOf(Asaas.chargeOf(code), Asaas.error(400, "invalid_action"));
+        clock.set(clock.instant().plus(delay));
+
+        reconciliation.reconcile();
+        reconciliation.reconcile();
+
+        assertThat(asaas.deletionsOf(Asaas.chargeOf(code))).isOne();
+    }
+
     /** The placement failed, and neither its charge's id nor the search for its code came back. */
     @Test
     void deletesTheChargeAFailedPlacementLeftUnderTheCancelledOrdersCodeOnce() {
@@ -245,6 +308,20 @@ class OrderReconciliationTest extends IntegrationTest {
 
         assertThat(asaas.deletionsOf(charge)).isOne();
         assertThat(asaas.deletionsOf(Asaas.chargeOf(onlyChargedOrder()))).isZero();
+    }
+
+    /** Another On sale Course, put on sale by an Admin signed in now. */
+    private long anotherCourse() {
+        return new AdminCourses(mvc, new AdminApi(mvc).sessionToken(adminEmail, PASSWORD), storedVideos)
+                .onSale(newSlug());
+    }
+
+    /** A search for charges by external reference that finds the one charge, not deleted. */
+    private static ResponseDefinitionBuilder searchFinding(String charge) {
+        return okJson("""
+                {"object": "list", "hasMore": false, "totalCount": 1, "limit": 10, "offset": 0,
+                 "data": [{"object": "payment", "id": "%s", "status": "PENDING", "deleted": false}]}"""
+                .formatted(charge));
     }
 
     /** Asaas made the charge after the API stopped waiting, then could not be searched: the charge stays there. */

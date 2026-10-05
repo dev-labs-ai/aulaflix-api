@@ -175,10 +175,21 @@ public final class Asaas {
                 .willReturn(answer));
     }
 
+    /** Answers every search for charges under the external reference this way. */
+    public void answerChargeSearchesUnder(String externalReference, ResponseDefinitionBuilder answer) {
+        server.stubFor(get(urlPathEqualTo("/v3/payments"))
+                .withQueryParam("externalReference", equalTo(externalReference)).willReturn(answer));
+    }
+
     /** Answers the next deletion of the charge this way, then as before. */
     public void answerNextDeletionOf(String chargeId, ResponseDefinitionBuilder answer) {
         server.stubFor(once("deletion " + chargeId, delete(urlPathEqualTo("/v3/payments/" + chargeId)))
                 .willReturn(answer));
+    }
+
+    /** How many times a charge was read by no id at all, as a read of a charge the API never got the id of would be. */
+    public int readsWithoutAChargeId() {
+        return server.findAll(getRequestedFor(urlPathMatching("/v3/payments/(null)?"))).size();
     }
 
     /** How many times the charge was read. */
