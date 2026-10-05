@@ -56,8 +56,9 @@ public class OrderController {
             its current price: Asaas makes a Checkout, its own page, where the Student pays in up to the Course's \
             maximum installments until the Order expires, 60 minutes later; no CPF is asked. Asaas sends the Student \
             back to the Course's checkout page, which proves no payment: the Order's read does. Asking again while \
-            that Order awaits payment answers it again and makes nothing new at Asaas. Each placement counts against \
-            the Student's limit, the IP's and everyone's.""")
+            that Order awaits payment answers it again and makes nothing new at Asaas. Asking for the other method \
+            cancels it first, at Asaas too, then places a new Order. Each placement counts against the Student's \
+            limit, the IP's and everyone's.""")
     @ApiResponse(responseCode = "201", description = "Placed; `Location` is the new Order's address",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = Order.class)))
@@ -72,10 +73,11 @@ public class OrderController {
             `course-not-for-sale`: no Course has the id, or it is a Draft or Coming soon; or `already-enrolled`: \
             the Student already has an active Enrollment in the Course""")
     @ApiResponse(responseCode = "502", description = """
-            `payment-provider-error`: Asaas refused the payment; the Order is cancelled, and a new one may be placed""")
+            `payment-provider-error`: Asaas refused the payment; the Order is cancelled, and a new one may be placed; \
+            or Asaas refused to cancel the Order awaiting payment by the other method, which still awaits it""")
     @ApiResponse(responseCode = "503", description = """
-            `payment-unavailable`: Asaas is down, too slow, or busy; the Order is cancelled, and a new one may be \
-            placed after Retry-After seconds""",
+            `payment-unavailable`: Asaas is down, too slow, or busy; the Order is cancelled, or the one awaiting \
+            payment by the other method still awaits it, and a new one may be placed after Retry-After seconds""",
             headers = @Header(name = HttpHeaders.RETRY_AFTER, description = "Seconds to wait before trying again",
                     schema = @Schema(type = "integer")))
     public ResponseEntity<Order> place(@AuthenticationPrincipal AuthenticatedAccount student,
@@ -110,5 +112,29 @@ public class OrderController {
     @ApiResponse(responseCode = "404", description = "`order-not-found`: the Student has no Order with the code")
     public Order get(@AuthenticationPrincipal AuthenticatedAccount student, @PathVariable String code) {
         return orders.get(student.accountId(), code);
+    }
+
+    @PostMapping("/{code}/cancellation")
+    @PreAuthorize("hasRole('STUDENT')")
+    @Operation(summary = "Cancel one of the Student's Orders awaiting payment", description = """
+            Deletes the Pix charge, or cancels the Checkout, at Asaas, and only then cancels the Order, so that \
+            nothing is left there to pay; the page calls it when the Student gives the Order up, or comes back from \
+            cancelling on Asaas's page. Asking again once it is cancelled answers it again and calls Asaas no more. \
+            Should a payment land all the same, it still wins.""")
+    @ApiResponse(responseCode = "200", description = "The Order, cancelled",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = Order.class)))
+    @ApiResponse(responseCode = "404", description = "`order-not-found`: the Student has no Order with the code")
+    @ApiResponse(responseCode = "409", description = """
+            `order-not-awaiting-payment`: the Order was paid, expired or declined, or is refunded""")
+    @ApiResponse(responseCode = "502", description = """
+            `payment-provider-error`: Asaas refused the cancellation; the Order still awaits payment""")
+    @ApiResponse(responseCode = "503", description = """
+            `payment-unavailable`: Asaas is down, too slow, or busy; the Order still awaits payment: try again \
+            after Retry-After seconds""",
+            headers = @Header(name = HttpHeaders.RETRY_AFTER, description = "Seconds to wait before trying again",
+                    schema = @Schema(type = "integer")))
+    public Order cancel(@AuthenticationPrincipal AuthenticatedAccount student, @PathVariable String code) {
+        return orders.cancel(student.accountId(), code);
     }
 }

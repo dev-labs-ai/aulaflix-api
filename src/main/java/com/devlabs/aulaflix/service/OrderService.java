@@ -43,6 +43,7 @@ public class OrderService {
             OrderStatus.REFUNDING, OrderStatus.REFUNDED, OrderStatus.REVERSED);
 
     private final OrderPlacements placements;
+    private final OrderCancellations cancellations;
     private final OrderRepository repository;
     private final AsaasGateway asaas;
     private final RateLimiter limiter;
@@ -50,9 +51,11 @@ public class OrderService {
     private final CheckoutReturns returns;
     private final Clock clock;
 
-    public OrderService(OrderPlacements placements, OrderRepository repository, AsaasGateway asaas,
-                        RateLimiter limiter, CheckoutLimits limits, CheckoutReturns returns, Clock clock) {
+    public OrderService(OrderPlacements placements, OrderCancellations cancellations, OrderRepository repository,
+                        AsaasGateway asaas, RateLimiter limiter, CheckoutLimits limits, CheckoutReturns returns,
+                        Clock clock) {
         this.placements = placements;
+        this.cancellations = cancellations;
         this.repository = repository;
         this.asaas = asaas;
         this.limiter = limiter;
@@ -62,16 +65,21 @@ public class OrderService {
     }
 
     /**
-     * Places an Order for an On sale Course, or answers the one already awaiting payment, which makes nothing new at
-     * Asaas. A Pix is a charge; a Student's first Pix makes their Asaas customer with the CPF, which is never stored. A
-     * card is paid on an Asaas Checkout. Every placement counts against the Student's limit and everyone's, whatever
-     * it answers.
+     * Places an Order for an On sale Course, or answers the one already awaiting payment by the same method, which
+     * makes nothing new at Asaas. One awaiting payment by the other method is cancelled first, at Asaas too; when Asaas
+     * fails it stays awaiting, and nothing is placed. A Pix is a charge; a Student's first Pix makes their Asaas
+     * customer with the CPF, which is never stored. A card is paid on an Asaas Checkout. Every placement counts against
+     * the Student's limit and everyone's, whatever it answers.
      */
     public PlacedOrder place(long studentId, OrderRequest request) {
         limiter.consume(limits.perStudent(), RateLimitKey.student(studentId));
         limiter.consume(limits.everyone(), RateLimitKey.everyone());
         OrderPlacements.Placement placement = placements.open(studentId, request.courseId(), request.method(),
                 request.cpf());
+        if (placement.existing() != null && placement.existing().method() != request.method()) {
+            cancellations.replace(studentId, placement.existing().code());
+            placement = placements.open(studentId, request.courseId(), request.method(), request.cpf());
+        }
         if (placement.existing() != null) {
             return new PlacedOrder(placement.existing(), false);
         }
@@ -79,6 +87,14 @@ public class OrderService {
             return new PlacedOrder(checkout(placement), true);
         }
         return new PlacedOrder(charge(studentId, placement), true);
+    }
+
+    /**
+     * Cancels the Student's Order awaiting payment, at Asaas first, or answers it again once cancelled. When Asaas
+     * fails, the Order stays awaiting payment.
+     */
+    public Order cancel(long studentId, String code) {
+        return cancellations.cancel(studentId, code);
     }
 
     /** The Student's Orders, newest first, but those never paid. */

@@ -40,9 +40,9 @@ import com.jayway.jsonpath.JsonPath;
  * a customer's id is {@code cus_} and its CPF in base64, a charge's id is {@code pay_} and its external reference,
  * which is the Order's code, and every Pix QR code is {@link #QR_CODE_PNG} with a copy-and-paste code ending in the
  * charge's id. A search by external reference finds the charge made under it. A Checkout's id is {@code chk_} and its
- * external reference, and a search by Checkout finds no charge until a test makes a card sale under it. Since every
- * test shares the server, a test that wants another answer asks for it by something only it uses, its Student's CPF,
- * the customer that CPF makes, or its Course's slug, and gets it once.
+ * external reference, and a search by Checkout finds no charge until a test makes a card sale under it; every Checkout
+ * can be cancelled. Since every test shares the server, a test that wants another answer asks for it by something only
+ * it uses, its Student's CPF, the customer that CPF makes, or its Course's slug, and gets it once.
  */
 public final class Asaas {
 
@@ -105,6 +105,9 @@ public final class Asaas {
                          "externalReference": "{{jsonPath request.body '$.externalReference'}}"}"""
                         .formatted(CHECKOUT_LINK_PREFIX))
                         .withTransformers(TEMPLATE)));
+        server.stubFor(post(urlPathMatching("/v3/checkouts/[^/]+/cancel")).atPriority(LOWEST_PRIORITY)
+                .willReturn(okJson("""
+                        {"id": "{{request.pathSegments.[2]}}", "status": "CANCELED"}""").withTransformers(TEMPLATE)));
         server.stubFor(delete(urlPathMatching("/v3/payments/[^/]+")).atPriority(LOWEST_PRIORITY)
                 .willReturn(okJson("""
                         {"deleted": true, "id": "{{request.pathSegments.[2]}}"}""").withTransformers(TEMPLATE)));
@@ -299,6 +302,18 @@ public final class Asaas {
                  "billingType": "CREDIT_CARD", "checkoutSession": "%s", "deleted": false}"""
                 .formatted(installmentId, BigDecimal.valueOf(valueCents, 2),
                         BigDecimal.valueOf(valueCents / installments, 2), installments, checkoutId))));
+    }
+
+    /** How many times the Checkout was cancelled. */
+    public int cancellationsOf(String checkoutId) {
+        return server.findAll(postRequestedFor(urlPathEqualTo("/v3/checkouts/%s/cancel".formatted(checkoutId))))
+                .size();
+    }
+
+    /** Answers the next cancellation of the Checkout this way, then as before. */
+    public void answerNextCancellationOf(String checkoutId, ResponseDefinitionBuilder answer) {
+        server.stubFor(once("cancellation " + checkoutId,
+                post(urlPathEqualTo("/v3/checkouts/%s/cancel".formatted(checkoutId)))).willReturn(answer));
     }
 
     /** Answers every search for the charges of the Checkout this way. */

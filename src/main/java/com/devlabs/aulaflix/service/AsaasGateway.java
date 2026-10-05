@@ -92,6 +92,14 @@ public class AsaasGateway {
         return created;
     }
 
+    /** Cancels the Checkout, so that no one pays on it any more. One that is no longer active may be refused. */
+    public void cancelCheckout(String checkoutId) {
+        call("cancelling a Checkout", () -> asaas.post().uri("/checkouts/{id}/cancel", checkoutId)
+                .body(Map.of())
+                .retrieve()
+                .toBodilessEntity());
+    }
+
     /** The QR code that pays the Pix charge: its PNG in base64, and its copy-and-paste code. */
     public PixQrCode pixQrCode(String chargeId) {
         String operation = "reading a Pix QR code";

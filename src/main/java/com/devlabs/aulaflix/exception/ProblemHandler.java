@@ -321,6 +321,12 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "The Student has no Order with this code."), request);
     }
 
+    @ExceptionHandler(OrderNotAwaitingPaymentException.class)
+    ResponseEntity<Object> orderNotAwaitingPayment(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "order-not-awaiting-payment", "Order not awaiting payment",
+                "Only an Order awaiting payment is cancelled: this one was paid, expired, or declined."), request);
+    }
+
     @ExceptionHandler(OrderNotPaidException.class)
     ResponseEntity<Object> orderNotPaid(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "order-not-paid", "Order not paid",

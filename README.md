@@ -416,6 +416,26 @@ A card Order expires at 60 minutes in the expiry job, or on Asaas's `CHECKOUT_EX
 Checkout's charges are re-read first, a payment wins, and a card held for risk analysis keeps the Order awaiting
 payment. Reconciliation re-reads them too, after its delay.
 
+### Switching methods and cancelling
+
+One method, one Asaas attempt per Order. `POST /v1/account/orders/{code}/cancellation`, with no body, cancels one of
+the Student's Orders awaiting payment: it deletes the Pix charge, or cancels the Checkout
+(`POST /v3/checkouts/{id}/cancel`), at Asaas, and only then makes the Order `CANCELLED`, answering 200 with it. The
+page calls it when the Student gives the Order up, or comes back from Asaas's page with `&cancelado=1`. Asking again
+answers the cancelled Order with 200 and calls Asaas no more; an Order paid, expired, declined or refunded gets 409
+`order-not-awaiting-payment`, and an unknown or another Student's code 404 `order-not-found`. Placing an Order by the
+other method while one awaits payment does the same cancellation first, then answers 201 with the new Order; a
+Student's first Pix still needs its CPF, which is checked before anything is cancelled.
+
+When Asaas cannot be reached the answer is 503 `payment-unavailable`, and when it refuses, 502
+`payment-provider-error`: either way the Order stays awaiting payment, and a switch places nothing. A refusal is
+checked first by re-reading the charge, or the Checkout's charges, since the Student may have paid before the webhook
+came: a payment wins, the Order is paid as by the webhook, and the cancellation gets 409 (a switch, `already-enrolled`).
+A charge already deleted, or a Checkout no one paid on, which Asaas refuses to cancel once it was cancelled on its page
+or expired, leaves nothing to pay, and the Order is cancelled. A card held for Asaas's risk analysis keeps it awaiting.
+A Pix Order whose charge's id never came back is cancelled at once, and its code is searched by reconciliation. A
+payment Asaas confirms after the cancellation still wins: the webhook pays a `CANCELLED` Order too.
+
 ### Finding and refunding Orders
 
 `GET /v1/admin/orders` lists every Order, in every state, newest first: 20 to a page by default (`page`, from 0, and

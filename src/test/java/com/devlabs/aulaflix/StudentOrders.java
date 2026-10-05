@@ -71,6 +71,12 @@ public final class StudentOrders {
         return bff.get("/v1/account/orders/" + code).header(HttpHeaders.AUTHORIZATION, bearer).exchange();
     }
 
+    /** Cancels the Order, as the page does when the Student gives it up or comes back from cancelling on Asaas. */
+    public MvcTestResult cancel(String code) {
+        return bff.post("/v1/account/orders/%s/cancellation".formatted(code))
+                .header(HttpHeaders.AUTHORIZATION, bearer).exchange();
+    }
+
     public static String codeOf(MvcTestResult order) {
         return JsonPath.read(AdminApi.body(order), "$.code");
     }

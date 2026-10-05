@@ -335,7 +335,8 @@ class OpenApiDocumentTest extends IntegrationTest {
                         "/v1/sessions/current", "/v1/email-confirmations", "/v1/account/confirmation-emails",
                         "/v1/account/enrollments", "/v1/account/enrollments/{courseId}",
                         "/v1/account/completed-lessons/{lessonId}", "/v1/account/lesson-visits",
-                        "/v1/account/orders", "/v1/account/orders/{code}", "/v1/password-reset-codes",
+                        "/v1/account/orders", "/v1/account/orders/{code}",
+                        "/v1/account/orders/{code}/cancellation", "/v1/password-reset-codes",
                         "/v1/password-resets", "/v1/account/password-change-codes", "/v1/account/password",
                         "/v1/waitlist-entries", "/v1/account/waitlists/{courseId}");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
@@ -1002,6 +1003,14 @@ class OpenApiDocumentTest extends IntegrationTest {
                 "200", "201", "400", "401", "403", "409", "429", "500", "502", "503");
         assertResponsesIn("bff", "/v1/account/orders", "get", "200", "400", "401", "403", "429", "500");
         assertResponsesIn("bff", "/v1/account/orders/{code}", "get", "200", "400", "401", "403", "404", "429", "500");
+        assertResponsesIn("bff", "/v1/account/orders/{code}/cancellation", "post",
+                "200", "400", "401", "403", "404", "409", "429", "500", "502", "503");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders/{code}/cancellation'].post.responses['409'].description")
+                .asString().contains("`order-not-awaiting-payment`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders/{code}/cancellation'].post.responses['503'].headers")
+                .asMap().containsOnlyKeys("Retry-After");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/account/orders'].post.responses['400'].description").asString()
                 .contains("`invalid-request`", "`required`", "`invalid-cpf`");
@@ -1017,7 +1026,8 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/account/orders'].post.responses['503']").isEqualTo(Map.of(
                         "description", "`payment-unavailable`: Asaas is down, too slow, or busy; the Order is "
-                                + "cancelled, and a new one may be placed after Retry-After seconds",
+                                + "cancelled, or the one awaiting payment by the other method still awaits it, and a "
+                                + "new one may be placed after Retry-After seconds",
                         "headers", Map.of("Retry-After", Map.of(
                                 "description", "Seconds to wait before trying again",
                                 "style", "simple",

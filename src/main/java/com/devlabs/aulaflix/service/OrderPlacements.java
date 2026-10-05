@@ -57,8 +57,9 @@ class OrderPlacements {
     /**
      * Writes a new Order awaiting payment, or finds the one already awaiting. A Pix Order is at the Course's current
      * Pix price, and a Student without an Asaas customer must send a valid CPF for it, which is checked here and kept
-     * only in the answer. A card Order is at the Course's current price, and asks for no CPF: the Student gives Asaas
-     * their details on its page.
+     * only in the answer; it is checked before the one awaiting by card is answered too, so that a switch the CPF
+     * would refuse cancels nothing. A card Order is at the Course's current price, and asks for no CPF: the Student
+     * gives Asaas their details on its page.
      */
     @Transactional
     Placement open(long studentId, long courseId, PaymentMethod method, String cpf) {
@@ -71,7 +72,12 @@ class OrderPlacements {
         }
         Optional<OrderEntity> awaiting =
                 orders.findByStudentAndCourseInStatus(studentId, courseId, OrderStatus.AWAITING_PAYMENT);
+        String customerId = student.getAsaasCustomerId();
+        boolean needsCpf = method == PaymentMethod.PIX && customerId == null;
         if (awaiting.isPresent()) {
+            if (needsCpf && awaiting.get().getMethod() != method) {
+                Cpf.requireValid(cpf);
+            }
             return Placement.ofExisting(OrderViews.withPayment(awaiting.get()));
         }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
@@ -81,8 +87,7 @@ class OrderPlacements {
             log.info("Student {} placed card Order {} for Course {}", studentId, order.getCode(), courseId);
             return Placement.of(order, null, null);
         }
-        String customerId = student.getAsaasCustomerId();
-        String cpfDigits = customerId == null ? Cpf.requireValid(cpf) : null;
+        String cpfDigits = needsCpf ? Cpf.requireValid(cpf) : null;
         int amountCents = Pricing.of(course.getPriceCents(), course.getPixDiscountPercent(),
                 course.getMaxInstallments()).pixPriceCents();
         OrderEntity order = orders.save(OrderEntity.pix(OrderCodes.next(), student, course, amountCents, now,
