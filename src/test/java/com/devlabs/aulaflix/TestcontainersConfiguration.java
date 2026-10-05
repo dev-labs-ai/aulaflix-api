@@ -18,8 +18,11 @@ public class TestcontainersConfiguration {
 
     private static final String POSTGRES_IMAGE = "postgres:18.6-alpine3.24";
 
-    /** How long the tests' application waits on a silent SMTP server, short so that a test can outwait it. */
-    public static final Duration SMTP_TIMEOUT = Duration.ofSeconds(2);
+    /**
+     * How long the tests' application waits on a silent SMTP server: short, so that a test can outwait it, yet long
+     * enough that Mailpit never misses it under the whole suite's load.
+     */
+    public static final Duration SMTP_TIMEOUT = Duration.ofSeconds(5);
 
     @Bean
     @ServiceConnection

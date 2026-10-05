@@ -13,11 +13,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.devlabs.aulaflix.ConfirmationLinks;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.Mailpit;
 import com.devlabs.aulaflix.SmtpRelay;
+import com.devlabs.aulaflix.StoredOutboxEmails;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.service.EmailOutbox;
 
@@ -39,6 +41,9 @@ class EmailConfirmationLogsTest extends IntegrationTest {
     @Autowired
     private SmtpRelay smtp;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @AfterEach
     void bringTheSmtpServerBack() {
         smtp.open();
@@ -46,7 +51,7 @@ class EmailConfirmationLogsTest extends IntegrationTest {
 
     @Test
     void logsNoEmailOrToken(CapturedOutput output) {
-        outbox.drain();
+        new StoredOutboxEmails(jdbc).discardPending();
         String email = newEmail();
         StudentApi students = new StudentApi(mvc);
         smtp.takeDown();

@@ -6,8 +6,8 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
 
 /**
@@ -20,8 +20,8 @@ public final class SmtpRelay {
     private final String mailpitHost;
     private final IntSupplier mailpitPort;
     private final ServerSocket server;
-    private final Set<Socket> held = ConcurrentHashMap.newKeySet();
-    private volatile Mode mode = Mode.OPEN;
+    private final Set<Socket> held = new HashSet<>();
+    private Mode mode = Mode.OPEN;
 
     public SmtpRelay(String mailpitHost, IntSupplier mailpitPort) {
         this.mailpitHost = mailpitHost;
@@ -42,19 +42,30 @@ public final class SmtpRelay {
         return server.getLocalPort();
     }
 
-    /** Relays every new connection to Mailpit, and lets go of those held while slow. */
-    public void open() {
+    /**
+     * Relays every new connection to Mailpit, and lets go of those held while slow. A connection is dispatched under
+     * the same lock, so none accepted while slow is held after the relay opens.
+     */
+    public synchronized void open() {
         mode = Mode.OPEN;
         held.forEach(SmtpRelay::closeQuietly);
         held.clear();
     }
 
-    public void takeDown() {
+    public synchronized void takeDown() {
         mode = Mode.DOWN;
     }
 
-    public void slowDown() {
+    public synchronized void slowDown() {
         mode = Mode.SLOW;
+    }
+
+    private synchronized void dispatch(Socket client) {
+        switch (mode) {
+            case OPEN -> Thread.ofVirtual().start(() -> relay(client));
+            case DOWN -> closeQuietly(client);
+            case SLOW -> held.add(client);
+        }
     }
 
     public void stop() {
@@ -65,12 +76,7 @@ public final class SmtpRelay {
     private void accept() {
         while (!server.isClosed()) {
             try {
-                Socket client = server.accept();
-                switch (mode) {
-                    case OPEN -> Thread.ofVirtual().start(() -> relay(client));
-                    case DOWN -> closeQuietly(client);
-                    case SLOW -> held.add(client);
-                }
+                dispatch(server.accept());
             } catch (IOException stopped) {
                 return;
             }

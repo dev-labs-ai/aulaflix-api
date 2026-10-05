@@ -32,6 +32,14 @@ public final class StoredOutboxEmails {
                 recipient);
     }
 
+    /**
+     * Deletes every email still pending, whoever queued it, so that a test that fails sends or counts them starts
+     * from an empty queue. Other tests queue under clocks of their own, so their emails may fall due at any time.
+     */
+    public void discardPending() {
+        jdbc.update("delete from outbox_emails where state = 'PENDING'");
+    }
+
     public record StoredOutboxEmail(String template, String state, int attempts, Instant nextAttemptAt,
                                     Instant sentAt) {
     }

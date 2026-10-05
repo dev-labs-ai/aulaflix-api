@@ -29,8 +29,8 @@ import com.devlabs.aulaflix.domain.entity.EmailTemplate;
 
 /**
  * Slow SMTP never fails a request nor loses a message: a request only queues, and an email the server failed is sent
- * on a later drain. Each test first drains what earlier tests left due, with the server up, so that a failing drain
- * stops at its own email.
+ * on a later drain. Each test starts from an empty queue: other tests queue emails under clocks of their own, which
+ * would fall due here as the clock moves, and be the ones a drain sends, counts or stops at.
  */
 class EmailOutboxTest extends IntegrationTest {
 
@@ -54,9 +54,9 @@ class EmailOutboxTest extends IntegrationTest {
     private StoredOutboxEmails stored;
 
     @BeforeEach
-    void drainWhatEarlierTestsLeftDue() {
+    void startFromAnEmptyQueue() {
         stored = new StoredOutboxEmails(jdbc);
-        outbox.drain();
+        stored.discardPending();
     }
 
     @AfterEach
@@ -78,7 +78,8 @@ class EmailOutboxTest extends IntegrationTest {
             assertThat(queued.template()).isEqualTo("CONFIRMATION_LINK");
             assertThat(queued.state()).isEqualTo("PENDING");
             assertThat(queued.attempts()).isOne();
-            assertThat(queued.nextAttemptAt()).isCloseTo(failedAt.plus(Duration.ofMinutes(1)), within(1, ChronoUnit.MICROS));
+            assertThat(queued.nextAttemptAt())
+                    .isCloseTo(failedAt.plus(Duration.ofMinutes(1)), within(1, ChronoUnit.MICROS));
             assertThat(queued.sentAt()).isNull();
         });
 
@@ -126,7 +127,7 @@ class EmailOutboxTest extends IntegrationTest {
                 Duration.ofMinutes(8), Duration.ofMinutes(16), Duration.ofMinutes(32), Duration.ofHours(1),
                 Duration.ofHours(1));
         for (int failure = 0; failure < waits.size(); failure++) {
-            drainUntilTried(email, failure + 1);
+            assertThat(outbox.drain()).isZero();
             StoredOutboxEmail queued = stored.onlyOneTo(email);
             assertThat(queued.attempts()).isEqualTo(failure + 1);
             assertThat(queued.nextAttemptAt())
@@ -137,16 +138,6 @@ class EmailOutboxTest extends IntegrationTest {
         smtp.open();
         outbox.drain();
         assertThat(mailpit.to(email)).hasSize(1);
-    }
-
-    /**
-     * Drains while the server is down until the email has had its attempts. Moving the clock on makes due the emails
-     * other tests queued at a later time; each drain fails the first of them and stops, so it takes one per email.
-     */
-    private void drainUntilTried(String email, int attempts) {
-        for (int drain = 0; drain < 1000 && stored.onlyOneTo(email).attempts() < attempts; drain++) {
-            outbox.drain();
-        }
     }
 
     @Test
