@@ -25,7 +25,7 @@ import com.devlabs.aulaflix.config.OpenApiConfiguration;
 import com.devlabs.aulaflix.dto.AdminSignInRequest;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.dto.IssuedSession;
-import com.devlabs.aulaflix.service.AdminSignInService;
+import com.devlabs.aulaflix.service.SignInService;
 import com.devlabs.aulaflix.service.SessionService;
 
 @RestController
@@ -35,10 +35,10 @@ public class AdminSessionController {
 
     private static final URI CURRENT_SESSION = URI.create("/v1/admin/sessions/current");
 
-    private final AdminSignInService signIn;
+    private final SignInService signIn;
     private final SessionService sessions;
 
-    public AdminSessionController(AdminSignInService signIn, SessionService sessions) {
+    public AdminSessionController(SignInService signIn, SessionService sessions) {
         this.signIn = signIn;
         this.sessions = sessions;
     }
@@ -60,7 +60,7 @@ public class AdminSessionController {
             content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                     schema = @Schema(implementation = ProblemDetail.class)))
     public ResponseEntity<IssuedSession> signIn(@Valid @RequestBody AdminSignInRequest request) {
-        return ResponseEntity.created(CURRENT_SESSION).body(signIn.signIn(request.email(), request.password()));
+        return ResponseEntity.created(CURRENT_SESSION).body(signIn.signInAsAdmin(request.email(), request.password()));
     }
 
     @DeleteMapping("/current")
