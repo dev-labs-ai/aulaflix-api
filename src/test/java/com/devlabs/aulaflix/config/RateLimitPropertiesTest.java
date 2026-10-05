@@ -28,18 +28,33 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void allowsEachClientIp30PlaybacksWithoutASessionAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::visitorPlaybackLimit)
+                .isEqualTo(new RateLimit("visitor-playback", 30, Duration.ofHours(1))));
+    }
+
+    @Test
     void takesLowerLimitsFromConfiguration() {
         application.withPropertyValues("aulaflix.rate-limits.bff-requests.requests=5",
-                        "aulaflix.rate-limits.bff-requests.window=10s")
-                .run(context -> assertThat(context).hasNotFailed()
-                        .getBean(RateLimitProperties.class).extracting(RateLimitProperties::bffRequestLimit)
-                        .isEqualTo(new RateLimit("bff-requests", 5, Duration.ofSeconds(10))));
+                        "aulaflix.rate-limits.bff-requests.window=10s",
+                        "aulaflix.rate-limits.visitor-playback.requests=3",
+                        "aulaflix.rate-limits.visitor-playback.window=20s")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    RateLimitProperties limits = context.getBean(RateLimitProperties.class);
+                    assertThat(limits.bffRequestLimit())
+                            .isEqualTo(new RateLimit("bff-requests", 5, Duration.ofSeconds(10)));
+                    assertThat(limits.visitorPlaybackLimit())
+                            .isEqualTo(new RateLimit("visitor-playback", 3, Duration.ofSeconds(20)));
+                });
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"aulaflix.rate-limits.bff-requests.requests=0",
             "aulaflix.rate-limits.bff-requests.requests=-1", "aulaflix.rate-limits.bff-requests.window=0s",
-            "aulaflix.rate-limits.bff-requests.window=-1m", "aulaflix.rate-limits.bff-requests.window=999ms"})
+            "aulaflix.rate-limits.bff-requests.window=-1m", "aulaflix.rate-limits.bff-requests.window=999ms",
+            "aulaflix.rate-limits.visitor-playback.requests=0", "aulaflix.rate-limits.visitor-playback.window=999ms"})
     void refusesToStartWithALimitThatCountsNothing(String property) {
         application.withPropertyValues(property).run(context -> assertThat(context).hasFailed());
     }

@@ -20,6 +20,16 @@ public interface LessonRepository extends JpaRepository<LessonEntity, Long> {
             where l.id = :id and l.course.id = :courseId and l.publishedAt is not null""")
     boolean isPublishedLessonOf(@Param("id") long id, @Param("courseId") long courseId);
 
+    /**
+     * The Lesson with its Course, while anyone but an Admin may see it: published, in an On sale Course. Any other
+     * Lesson exists for the Admin alone.
+     */
+    @Query("""
+            select l from LessonEntity l join fetch l.course c
+            where l.id = :id and l.publishedAt is not null
+              and c.status = com.devlabs.aulaflix.domain.CourseStatus.ON_SALE""")
+    Optional<LessonEntity> findPublishedInOnSaleCourse(@Param("id") long id);
+
     /** In order within each Module. */
     List<LessonEntity> findByCourseIdOrderByPosition(long courseId);
 

@@ -132,6 +132,17 @@ curl -H "AulaFlix-BFF-Key: $(cat secrets/aulaflix.bff.key)" -H "AulaFlix-Client-
     http://localhost:8080/v1/courses
 ```
 
+## Playing a Lesson
+
+`GET /v1/lessons/{lessonId}/playback` answers `{ url, expiresAt }`: a presigned `GET` of the Lesson's video, signed
+with the read-only key on every call, valid for 4 hours (`aulaflix.storage.playback-url-lifetime`), and answered with
+`Cache-Control: no-store`. Only a published Lesson of an On sale Course plays; any other answers 404
+`lesson-not-found`, an id of any shape included. The Free lesson plays for anyone, without a session, and any other
+Lesson answers 401 without one. The session is optional, but a token that is sent must be valid, even for the Free
+lesson, and an Admin's gets a 403: the Admin previews through their own endpoint. Without a session, one IP gets 30
+plays an hour, whatever they answer (`aulaflix.rate-limits.visitor-playback.*`), on top of the 600 requests a minute
+every BFF request counts against.
+
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from

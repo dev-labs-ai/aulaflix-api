@@ -229,8 +229,11 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "priceCents must be divisible by maxInstallments, so that every installment is exact."), request);
     }
 
-    /** Raised by the session token filter, and by the chain for a request that needs a session and has none. */
-    @ExceptionHandler(AuthenticationException.class)
+    /**
+     * Raised by the session token filter, by the chain for a request that needs a session and has none, and by a
+     * service once what the request asks for turns out to need one.
+     */
+    @ExceptionHandler({AuthenticationException.class, SessionRequiredException.class})
     ResponseEntity<Object> unauthenticated(HttpServletRequest request) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.WWW_AUTHENTICATE, "Bearer");

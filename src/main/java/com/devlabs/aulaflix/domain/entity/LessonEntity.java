@@ -116,6 +116,11 @@ public class LessonEntity {
         this.durationSeconds = durationSeconds;
     }
 
+    /** Whether this is its Course's Free lesson, the one anyone may watch once the Course is On sale. */
+    public boolean isFreeLesson() {
+        return id.equals(course.getFreeLessonId());
+    }
+
     public boolean isPublished() {
         return publishedAt != null;
     }

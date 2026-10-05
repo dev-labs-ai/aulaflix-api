@@ -34,7 +34,8 @@ import com.devlabs.aulaflix.service.SessionService;
 
 /**
  * Deny by default. Every request but the Admin's comes from the BFF and carries its key; every Admin endpoint needs an
- * Admin session, here and again in its own {@code @PreAuthorize}. The refusals the filters make go through the same
+ * Admin session, here and again in its own {@code @PreAuthorize}. Playback needs no session, and refuses only an
+ * Admin's, here and again in its {@code @PreAuthorize}. The refusals the filters make go through the same
  * {@code @RestControllerAdvice} as every other refusal.
  */
 @Configuration(proxyBeanMethods = false)
@@ -48,6 +49,8 @@ public class SecurityConfiguration {
     private static final String[] DOCUMENTATION = {"/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"};
 
     private static final String ADMIN = "/v1/admin/**";
+
+    private static final String PLAYBACK = "/v1/lessons/*/playback";
 
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
@@ -64,10 +67,13 @@ public class SecurityConfiguration {
                 .addFilterBefore(new SessionTokenFilter(sessions, problems), AnonymousAuthenticationFilter.class)
                 .addFilterBefore(new BffRequestFilter(bffRequests(), bff.key(), limiter, limits.bffRequestLimit(),
                         resolver), SessionTokenFilter.class)
+                .addFilterAfter(new VisitorLimitFilter(PathPatternRequestMatcher.pathPattern(HttpMethod.GET, PLAYBACK),
+                        limiter, limits.visitorPlaybackLimit(), resolver), SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
+                        .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")
                         .requestMatchers(DOCUMENTATION).permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())

@@ -25,13 +25,16 @@ import com.devlabs.aulaflix.service.RateLimiter;
 
 /**
  * Lets through only what the BFF sends: its key, then the browser's IP, which is read only once the key shows the BFF
- * sent it, and counts the request against that IP's general limit. A request it should not see, the Admin's through
- * the SSH tunnel, is never filtered, so never counted.
+ * sent it, and counts the request against that IP's general limit. The IP then goes along with the request, for the
+ * limits further down the chain. A request it should not see, the Admin's through the SSH tunnel, is never filtered,
+ * so never counted.
  */
 final class BffRequestFilter extends OncePerRequestFilter {
 
     static final String KEY_HEADER = "AulaFlix-BFF-Key";
     static final String CLIENT_IP_HEADER = "AulaFlix-Client-IP";
+
+    private static final String CLIENT_IP_ATTRIBUTE = BffRequestFilter.class.getName() + ".clientIp";
 
     /**
      * Four decimal parts without leading zeros. The JDK also reads {@code 127.1} or {@code 017.0.0.1} as addresses, but
@@ -80,7 +83,13 @@ final class BffRequestFilter extends OncePerRequestFilter {
             problems.resolveException(request, response, null, refusal);
             return;
         }
+        request.setAttribute(CLIENT_IP_ATTRIBUTE, clientIp.get());
         chain.doFilter(request, response);
+    }
+
+    /** The browser's IP, which a request this filter let through carries along. */
+    static InetAddress clientIpOf(HttpServletRequest request) {
+        return (InetAddress) request.getAttribute(CLIENT_IP_ATTRIBUTE);
     }
 
     /**

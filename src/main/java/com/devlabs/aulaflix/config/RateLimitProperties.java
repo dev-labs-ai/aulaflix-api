@@ -21,11 +21,19 @@ import com.devlabs.aulaflix.service.RateLimit;
 public record RateLimitProperties(
         @NotNull
         @Valid
-        Limit bffRequests) {
+        Limit bffRequests,
+        @NotNull
+        @Valid
+        Limit visitorPlayback) {
 
     /** Every BFF request, whatever it asks for, per client IP. */
     RateLimit bffRequestLimit() {
         return bffRequests.named("bff-requests");
+    }
+
+    /** Every playback without a session, whatever it answers, per client IP. */
+    RateLimit visitorPlaybackLimit() {
+        return visitorPlayback.named("visitor-playback");
     }
 
     /** At most {@code requests} per {@code window}, a window being at least a second. */

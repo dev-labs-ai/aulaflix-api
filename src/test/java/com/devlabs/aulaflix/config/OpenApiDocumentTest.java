@@ -2,6 +2,7 @@ package com.devlabs.aulaflix.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -324,10 +325,10 @@ class OpenApiDocumentTest extends IntegrationTest {
     }
 
     @Test
-    void servesTheBffGroupWithTheCatalogAndNoAdminEndpoint() {
+    void servesTheBffGroupWithTheCatalogAndPlaybackAndNoAdminEndpoint() {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).hasStatusOk().bodyJson()
                 .extractingPath("$.paths").asMap()
-                .containsOnlyKeys("/v1/courses", "/v1/courses/{slug}");
+                .containsOnlyKeys("/v1/courses", "/v1/courses/{slug}", "/v1/lessons/{lessonId}/playback");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -436,6 +437,55 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .contains("invalid-request", "invalid-client-ip");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/courses/{slug}'].get.responses[*].content")
+                .asArray()
+                .hasSize(7)
+                .filteredOn(content -> ((Map<?, ?>) content).containsKey("application/problem+json"))
+                .hasSize(6);
+    }
+
+    @Test
+    void documentsPlaybackWithASessionOrWithout() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/lessons/{lessonId}/playback": {
+                      "get": {
+                        "tags": ["Playback"],
+                        "parameters": [
+                          {"name": "lessonId", "in": "path", "required": true},
+                          {"name": "AulaFlix-Client-IP", "in": "header", "required": true}
+                        ],
+                        "responses": {
+                          "200": {
+                            "content": {
+                              "application/json": {"schema": {"$ref": "#/components/schemas/VideoPlayback"}}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.parameters").asArray().hasSize(2);
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.security").asArray()
+                .containsExactlyInAnyOrder(Map.of("bffKey", List.of()),
+                        Map.of("bffKey", List.of(), "bearer", List.of()));
+    }
+
+    @Test
+    void documentsEveryStatusPlaybackCanAnswer() {
+        assertResponsesIn("bff", "/v1/lessons/{lessonId}/playback", "get",
+                "200", "400", "401", "403", "404", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.responses['403'].description")
+                .asString().contains("`forbidden`", "Admin", "`invalid-bff-key`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.responses['404'].description")
+                .asString().contains("`lesson-not-found`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/lessons/{lessonId}/playback'].get.responses[*].content")
                 .asArray()
                 .hasSize(7)
                 .filteredOn(content -> ((Map<?, ?>) content).containsKey("application/problem+json"))

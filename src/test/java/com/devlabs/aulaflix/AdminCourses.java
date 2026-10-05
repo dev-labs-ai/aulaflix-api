@@ -85,6 +85,15 @@ public final class AdminCourses {
         return courseId;
     }
 
+    /** The id of the Course's Free lesson, as its document names it. */
+    public long freeLessonOf(long courseId) {
+        MvcTestResult course = mvc.get().uri("/v1/admin/courses/" + courseId)
+                .header(HttpHeaders.AUTHORIZATION, bearer)
+                .exchange();
+        assertThat(course).hasStatusOk();
+        return ((Number) JsonPath.read(body(course), "$.freeLessonId")).longValue();
+    }
+
     /** The new Module's id. */
     public long addModule(long courseId, String title) {
         MvcTestResult created = mvc.post().uri("/v1/admin/courses/" + courseId + "/modules")

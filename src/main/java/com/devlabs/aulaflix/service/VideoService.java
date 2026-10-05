@@ -18,10 +18,12 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.devlabs.aulaflix.domain.entity.LessonEntity;
 import com.devlabs.aulaflix.dto.AdminLesson;
+import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.dto.VideoLinkRequest;
 import com.devlabs.aulaflix.dto.VideoPlayback;
 import com.devlabs.aulaflix.dto.VideoUpload;
 import com.devlabs.aulaflix.exception.LessonNotFoundException;
+import com.devlabs.aulaflix.exception.SessionRequiredException;
 import com.devlabs.aulaflix.exception.VideoNotFoundException;
 import com.devlabs.aulaflix.exception.VideoNotLinkedException;
 import com.devlabs.aulaflix.repository.LessonRepository;
@@ -90,9 +92,32 @@ public class VideoService {
     public VideoPlayback adminPlayback(String lessonId) {
         LessonEntity lesson = PathIds.parse(lessonId).flatMap(lessons::findById)
                 .orElseThrow(LessonNotFoundException::new);
-        VideoStorage.SignedUrl playback = Optional.ofNullable(lesson.getVideoObjectKey())
-                .map(storage::signPlayback)
+        return Optional.ofNullable(lesson.getVideoObjectKey())
+                .map(this::playbackOf)
                 .orElseThrow(VideoNotLinkedException::new);
+    }
+
+    /**
+     * A published Lesson of an On sale Course, for anyone but an Admin, whom the security chain refuses first: the Free
+     * lesson plays without a session, and any other Lesson needs one. A published Lesson always has its video. Past
+     * the session, only a Student's could get here, and their Enrollment would decide; but no Student can sign in yet.
+     */
+    @Transactional(readOnly = true)
+    public VideoPlayback playback(String lessonId, Optional<AuthenticatedAccount> viewer) {
+        LessonEntity lesson = PathIds.parse(lessonId).flatMap(lessons::findPublishedInOnSaleCourse)
+                .orElseThrow(LessonNotFoundException::new);
+        if (lesson.isFreeLesson()) {
+            return playbackOf(lesson.getVideoObjectKey());
+        }
+        if (viewer.isEmpty()) {
+            throw new SessionRequiredException();
+        }
+        throw new IllegalStateException("Students have no sessions yet");
+    }
+
+    /** Signed afresh with the read-only key, so that the URL only ever reads the one object. */
+    private VideoPlayback playbackOf(String objectKey) {
+        VideoStorage.SignedUrl playback = storage.signPlayback(objectKey);
         return new VideoPlayback(playback.url(), playback.expiresAt());
     }
 

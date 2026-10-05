@@ -33,7 +33,7 @@ import org.springframework.http.HttpHeaders;
 @Configuration(proxyBeanMethods = false)
 @OpenAPIDefinition(info = @Info(title = "AulaFlix API", version = "v1"))
 @SecurityScheme(name = OpenApiConfiguration.BEARER, type = SecuritySchemeType.HTTP, scheme = "bearer",
-        description = "The token from POST /v1/admin/sessions.")
+        description = "A session's token, such as the one POST /v1/admin/sessions returns.")
 @SecurityScheme(name = OpenApiConfiguration.BFF_KEY, type = SecuritySchemeType.APIKEY, in = SecuritySchemeIn.HEADER,
         paramName = BffRequestFilter.KEY_HEADER, description = "The secret the BFF shares with the API.")
 public class OpenApiConfiguration {
@@ -89,11 +89,14 @@ public class OpenApiConfiguration {
 
     /**
      * Every BFF endpoint takes the BFF's key and the browser's IP, refuses a request without either, and counts it
-     * against the IP's general limit.
+     * against the IP's general limit. The key goes into each way the endpoint is called: alone, or with a session.
      */
     private static OpenApiCustomizer bffRails() {
         return openApi -> operations(openApi).forEach(operation -> {
-            operation.addSecurityItem(new SecurityRequirement().addList(BFF_KEY));
+            if (operation.getSecurity() == null || operation.getSecurity().isEmpty()) {
+                operation.addSecurityItem(new SecurityRequirement());
+            }
+            operation.getSecurity().forEach(requirement -> requirement.addList(BFF_KEY));
             operation.addParametersItem(new HeaderParameter()
                     .name(BffRequestFilter.CLIENT_IP_HEADER)
                     .required(true)
@@ -122,9 +125,10 @@ public class OpenApiConfiguration {
         return openApi.getPaths().values().stream().flatMap(path -> path.readOperations().stream());
     }
 
+    /** Whether every way the endpoint is called takes a session; playback, for one, may take none. */
     private static boolean requiresASession(Operation operation) {
-        return operation.getSecurity() != null
-                && operation.getSecurity().stream().anyMatch(requirement -> requirement.containsKey(BEARER));
+        return operation.getSecurity() != null && !operation.getSecurity().isEmpty()
+                && operation.getSecurity().stream().allMatch(requirement -> requirement.containsKey(BEARER));
     }
 
     /** springdoc gives a refusal declared without content the method's own return type, as if it were a success. */
