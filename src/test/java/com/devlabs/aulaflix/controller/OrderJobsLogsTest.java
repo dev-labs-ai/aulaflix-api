@@ -7,12 +7,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.devlabs.aulaflix.AdminApi;
 import com.devlabs.aulaflix.AdminCourses;
@@ -20,6 +22,7 @@ import com.devlabs.aulaflix.Asaas;
 import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.Cpfs;
 import com.devlabs.aulaflix.IntegrationTest;
+import com.devlabs.aulaflix.StoredOutboxEmails;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.StudentOrders;
@@ -48,6 +51,9 @@ class OrderJobsLogsTest extends IntegrationTest {
     private Asaas asaas;
 
     @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
     private OrderExpiry expiry;
 
     @Autowired
@@ -71,6 +77,15 @@ class OrderJobsLogsTest extends IntegrationTest {
         email = StudentApi.newEmail();
         cpf = Cpfs.newCpf();
         orders = new StudentOrders(bff, new StudentApi(bff).signedUp(email, PASSWORD));
+    }
+
+    /**
+     * A job pays whatever Order of the whole suite is due, and a Duplicate payment it finds alerts every Admin the
+     * suite has made, hundreds of them: what it queued is discarded, so that no later test's drain waits behind it.
+     */
+    @AfterEach
+    void discardWhatTheJobsQueued() {
+        new StoredOutboxEmails(jdbc).discardPending();
     }
 
     @Test
