@@ -99,6 +99,10 @@ public class OrderEntity {
     @Column(name = "refunded_at")
     private Instant refundedAt;
 
+    /** When reconciliation last re-read the paid Order's charge; written only by its own update, never by a save. */
+    @Column(name = "charge_checked_at", insertable = false, updatable = false)
+    private Instant chargeCheckedAt;
+
     protected OrderEntity() {
     }
 
@@ -198,6 +202,18 @@ public class OrderEntity {
         }
         status = OrderStatus.REFUNDED;
         refundedAt = at;
+        return true;
+    }
+
+    /**
+     * Reversed, if it was paid, by a chargeback or an upheld Pix cautionary block, and answers whether it was; any
+     * other state stays: a refunding Order's money is going back already, and a Reversal is final.
+     */
+    public boolean reverse() {
+        if (status != OrderStatus.PAID) {
+            return false;
+        }
+        status = OrderStatus.REVERSED;
         return true;
     }
 

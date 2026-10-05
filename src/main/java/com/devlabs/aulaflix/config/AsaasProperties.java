@@ -15,7 +15,8 @@ import org.springframework.validation.annotation.Validated;
  * Asaas, read from {@code aulaflix.asaas.*}: its API's base URL, the sandbox's by default; the API key and the webhook's
  * token, secret files named after their properties, without which the API refuses to start; how long a call waits for
  * Asaas; the {@code Retry-After} a Student gets while Asaas cannot be reached; how often the webhook worker, the expiry
- * job and reconciliation run; and how long reconciliation leaves an Order to its webhook.
+ * job and reconciliation run; how long reconciliation leaves an Order to its webhook; and how often it re-reads a paid
+ * Order's charge.
  */
 @Validated
 @ConfigurationProperties("aulaflix.asaas")
@@ -62,7 +63,15 @@ public record AsaasProperties(
          */
         @NotNull
         @DurationMin(seconds = 1)
-        Duration reconciliationDelay) {
+        Duration reconciliationDelay,
+
+        /**
+         * How long reconciliation leaves a paid Order before it re-reads its charge again, for money going back whose
+         * webhook was lost: each re-read is one call against Asaas's quota.
+         */
+        @NotNull
+        @DurationMin(minutes = 1)
+        Duration paidRecheckInterval) {
 
     /** Never shows the key nor the token, wherever the properties end up printed. */
     @Override
@@ -70,6 +79,6 @@ public record AsaasProperties(
         return "AsaasProperties[baseUrl=" + baseUrl + ", timeout=" + timeout + ", retryAfter=" + retryAfter
                 + ", webhookInterval=" + webhookInterval + ", expiryInterval=" + expiryInterval
                 + ", reconciliationInterval=" + reconciliationInterval + ", reconciliationDelay="
-                + reconciliationDelay + "]";
+                + reconciliationDelay + ", paidRecheckInterval=" + paidRecheckInterval + "]";
     }
 }

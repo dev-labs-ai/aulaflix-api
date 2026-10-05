@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 
 import com.devlabs.aulaflix.service.AsaasGateway;
 import com.devlabs.aulaflix.service.CheckoutLimits;
+import com.devlabs.aulaflix.service.PaidRecheckInterval;
 import com.devlabs.aulaflix.service.ReconciliationDelay;
 
 @Configuration(proxyBeanMethods = false)
@@ -44,6 +45,11 @@ public class PaymentConfiguration {
     @Bean
     ReconciliationDelay reconciliationDelay(AsaasProperties asaas) {
         return new ReconciliationDelay(asaas.reconciliationDelay());
+    }
+
+    @Bean
+    PaidRecheckInterval paidRecheckInterval(AsaasProperties asaas) {
+        return new PaidRecheckInterval(asaas.paidRecheckInterval());
     }
 
     @Bean

@@ -31,8 +31,13 @@ public class AsaasWebhookInbox {
     /** 256 KB: the edge's own limit, so that a body the edge lets through is never refused here. */
     private static final int MAX_BODY_BYTES = 256 * 1024;
 
-    /** The events whose charge the worker re-reads; any other is stored as ignored. */
-    private static final Set<String> HANDLED_EVENTS = Set.of("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED");
+    /**
+     * The events whose charge the worker re-reads: a payment, and money going back by a refund, whoever made it, or a
+     * chargeback, at any step of its dispute. Any other is stored as ignored.
+     */
+    private static final Set<String> HANDLED_EVENTS = Set.of("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED",
+            "PAYMENT_REFUNDED", "PAYMENT_PARTIALLY_REFUNDED", "PAYMENT_REFUND_IN_PROGRESS",
+            "PAYMENT_CHARGEBACK_REQUESTED", "PAYMENT_CHARGEBACK_DISPUTE", "PAYMENT_AWAITING_CHARGEBACK_REVERSAL");
 
     private static final int MAX_EVENT_ID_LENGTH = 255;
     private static final int MAX_CHARGE_ID_LENGTH = 64;

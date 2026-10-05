@@ -59,6 +59,13 @@ class AsaasPropertiesTest {
         });
     }
 
+    /** A paid Order's charge is re-read a few times a day, well within Asaas's quota. */
+    @Test
+    void reReadsEachPaidOrdersChargeEverySixHoursByDefault() {
+        application.run(context -> assertThat(context.getBean(AsaasProperties.class).paidRecheckInterval())
+                .isEqualTo(Duration.ofHours(6)));
+    }
+
     /** Asaas takes a token of 32 to 255 characters. */
     @ParameterizedTest
     @ValueSource(ints = {32, 255})
@@ -73,7 +80,8 @@ class AsaasPropertiesTest {
             "aulaflix.asaas.webhook-token=                                ",
             "aulaflix.asaas.webhook-token=0123456789012345678901234567890", "aulaflix.asaas.webhook-interval=0s",
             "aulaflix.asaas.expiry-interval=0s", "aulaflix.asaas.reconciliation-interval=0s",
-            "aulaflix.asaas.reconciliation-delay=999ms"})
+            "aulaflix.asaas.reconciliation-delay=999ms", "aulaflix.asaas.paid-recheck-interval=59s",
+            "aulaflix.asaas.paid-recheck-interval="})
     void refusesToStartWithoutAnyOfItsSettings(String setting) {
         application.withPropertyValues(setting).run(context -> assertThat(context).hasFailed());
     }

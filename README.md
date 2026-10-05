@@ -412,6 +412,33 @@ reached, with 503 `payment-unavailable`. An Order that was never paid gets 409 `
 re-reads every `REFUNDING` Order's charge on each run until Asaas reports its refund `DONE`; the Order then becomes
 `REFUNDED`, with `refundedAt`.
 
+### Refunds made in Asaas, chargebacks and upheld Pix blocks
+
+Access follows the money, whoever moves it, and always from a re-read of the charge. The webhook worker also takes
+`PAYMENT_REFUNDED`, `PAYMENT_PARTIALLY_REFUNDED`, `PAYMENT_REFUND_IN_PROGRESS`, `PAYMENT_CHARGEBACK_REQUESTED`,
+`PAYMENT_CHARGEBACK_DISPUTE` and `PAYMENT_AWAITING_CHARGEBACK_REVERSAL`; and, for a webhook that was lost,
+reconciliation re-reads each `PAID` Order's charge once every `aulaflix.asaas.paid-recheck-interval` (6 h), counted
+from its payment, then from its last re-read, one Asaas call each. What the re-read shows, for a `PAID` or `REFUNDING`
+Order:
+
+- **A refund**, whoever made it: the Admin in the Asaas UI, or Asaas taking the Admin's refund after the API stopped
+  waiting. The charge is `REFUND_REQUESTED` or `REFUND_IN_PROGRESS`, or lists a refund Asaas did not cancel. A `PAID`
+  Order becomes `REFUNDING`, with `refundRequestedAt` and no `refundRequestedBy`, the Enrollment it granted ends with
+  `REFUND`, and the refund notice is queued, once; it is `REFUNDED` at once when the refund is `DONE`. A later Admin
+  refund answers 200 without calling Asaas.
+- **A chargeback**, from the moment it is opened: the charge is `CHARGEBACK_REQUESTED`, `CHARGEBACK_DISPUTE` or
+  `AWAITING_CHARGEBACK_REVERSAL`, or `REFUNDED` with a `chargeback`. A `PAID` Order becomes `REVERSED`, and the
+  Enrollment it granted ends with `CHARGEBACK`. Nothing is emailed. There is no dispute through the API; if the owner
+  wins one in the Asaas UI, the Order stays `REVERSED`, and an Admin grants the Course again by hand
+  (`POST /v1/admin/enrollments`).
+- **An upheld Pix cautionary block**: a Pix charge `CONFIRMED` during the block already granted access; if the block
+  is upheld, Asaas shows it `REFUNDED` with no refund listed. A `PAID` Pix Order becomes `REVERSED`, and the Enrollment
+  ends with `PIX_BLOCK_UPHELD`. A released block turns the charge `RECEIVED`, which changes nothing.
+
+A `REFUNDING` Order stays so on a chargeback, its Enrollment already ended. After a Refund or a Reversal the Student's
+list shows the Order, and the Student may buy the Course again. Money that went back before the API saw the Order
+paid changes nothing: the Order was never paid.
+
 ## The API's image and the `full` profile
 
 The `Dockerfile` builds the API's image: the jar on a JRE, run as the unprivileged user 10001, with the heap at 75% of
