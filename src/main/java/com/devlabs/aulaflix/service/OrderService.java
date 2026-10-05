@@ -76,17 +76,16 @@ public class OrderService {
         limiter.consume(limits.everyone(), RateLimitKey.everyone());
         OrderPlacements.Placement placement = placements.open(studentId, request.courseId(), request.method(),
                 request.cpf());
-        if (placement.existing() != null && placement.existing().method() != request.method()) {
-            cancellations.replace(studentId, placement.existing().code());
+        if (placement instanceof OrderPlacements.Placement.Awaiting awaiting
+                && awaiting.order().method() != request.method()) {
+            cancellations.replace(studentId, awaiting.order().code());
             placement = placements.open(studentId, request.courseId(), request.method(), request.cpf());
         }
-        if (placement.existing() != null) {
-            return new PlacedOrder(placement.existing(), false);
-        }
-        if (placement.method() == PaymentMethod.CARD) {
-            return new PlacedOrder(checkout(placement), true);
-        }
-        return new PlacedOrder(charge(studentId, placement), true);
+        return switch (placement) {
+            case OrderPlacements.Placement.Awaiting awaiting -> new PlacedOrder(awaiting.order(), false);
+            case OrderPlacements.Placement.NewCard card -> new PlacedOrder(checkout(card), true);
+            case OrderPlacements.Placement.NewPix pix -> new PlacedOrder(charge(studentId, pix), true);
+        };
     }
 
     /**
@@ -116,10 +115,11 @@ public class OrderService {
      * Makes the card Order's Checkout. When Asaas fails, the Order is cancelled, and nothing is left to undo: a
      * Checkout made all the same, under a call that timed out, has a link no one got, and expires on its own.
      */
-    private Order checkout(OrderPlacements.Placement placement) {
+    private Order checkout(OrderPlacements.Placement.NewCard placement) {
         try {
             AsaasGateway.Checkout checkout = asaas.createCardCheckout(new AsaasGateway.CardCheckout(placement.code(),
-                    placement.courseTitle(), description(placement), placement.amountCents(),
+                    placement.courseTitle(), description(placement.code(), placement.courseTitle()),
+                    placement.amountCents(),
                     placement.maxInstallments(), OrderPlacements.CARD_LIFETIME,
                     returns.after(placement.courseSlug(), placement.code()),
                     returns.afterCancelling(placement.courseSlug(), placement.code())));
@@ -135,20 +135,22 @@ public class OrderService {
         }
     }
 
-    private static String description(OrderPlacements.Placement placement) {
-        return "Pedido %s: %s".formatted(placement.code(), placement.courseTitle());
+    private static String description(String code, String courseTitle) {
+        return "Pedido %s: %s".formatted(code, courseTitle);
     }
 
-    private Order charge(long studentId, OrderPlacements.Placement placement) {
+    private Order charge(long studentId, OrderPlacements.Placement.NewPix placement) {
         Charging charging = new Charging();
         try {
-            String customerId = placement.customerId() != null ? placement.customerId()
-                    : placements.recordCustomer(studentId,
-                            asaas.createCustomer(placement.studentName(), placement.cpf()));
+            String customerId = switch (placement.payer()) {
+                case OrderPlacements.Placement.Customer customer -> customer.id();
+                case OrderPlacements.Placement.NewCustomer customer -> placements.recordCustomer(studentId,
+                        asaas.createCustomer(customer.name(), customer.cpf()));
+            };
             charging.started = true;
             charging.chargeId = asaas.createPixCharge(customerId, placement.amountCents(),
                     LocalDate.now(clock.withZone(ASAAS_ZONE)), placement.code(),
-                    description(placement));
+                    description(placement.code(), placement.courseTitle()));
             return placements.recordPixCharge(placement.orderId(), charging.chargeId,
                     asaas.pixQrCode(charging.chargeId));
         } catch (AsaasUnavailableException failure) {
@@ -171,7 +173,7 @@ public class OrderService {
      * reconciliation searches the code again once a charge whose creation timed out would have reached Asaas, and
      * deletes what a failed deletion left.
      */
-    private void cancel(OrderPlacements.Placement placement, Charging charging) {
+    private void cancel(OrderPlacements.Placement.NewPix placement, Charging charging) {
         placements.cancel(placement.orderId(), charging.started);
         if (!charging.started) {
             return;

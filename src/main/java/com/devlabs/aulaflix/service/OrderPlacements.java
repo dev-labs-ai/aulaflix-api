@@ -79,7 +79,7 @@ class OrderPlacements {
             if (needsCpf && awaiting.get().getMethod() != method) {
                 Cpf.requireValid(cpf);
             }
-            return Placement.ofExisting(OrderViews.withPayment(awaiting.get()));
+            return new Placement.Awaiting(OrderViews.withPayment(awaiting.get()));
         }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         CoursePricing pricing = Pricing.of(course);
@@ -87,13 +87,15 @@ class OrderPlacements {
             OrderEntity order = orders.save(OrderEntity.card(OrderCodes.next(), student, course,
                     pricing.pixDiscountPercent(), now, now.plus(CARD_LIFETIME)));
             log.info("Student {} placed card Order {} for Course {}", studentId, order.getCode(), courseId);
-            return Placement.of(order, null, null);
+            return new Placement.NewCard(order.getId(), order.getCode(), order.getAmountCents(), course.getTitle(),
+                    course.getSlug(), course.getMaxInstallments());
         }
-        String cpfDigits = needsCpf ? Cpf.requireValid(cpf) : null;
+        Placement.Payer payer = needsCpf ? new Placement.NewCustomer(student.getName(), Cpf.requireValid(cpf))
+                : new Placement.Customer(customerId);
         OrderEntity order = orders.save(OrderEntity.pix(OrderCodes.next(), student, course,
                 pricing.pixDiscountPercent(), pricing.pixPriceCents(), now, now.plus(PIX_LIFETIME)));
         log.info("Student {} placed Pix Order {} for Course {}", studentId, order.getCode(), courseId);
-        return Placement.of(order, customerId, cpfDigits);
+        return new Placement.NewPix(order.getId(), order.getCode(), order.getAmountCents(), course.getTitle(), payer);
     }
 
     /** Keeps the Student's Asaas customer, unless another placement kept one first, whose id is answered instead. */
@@ -141,31 +143,39 @@ class OrderPlacements {
         orders.findById(orderId).orElseThrow().chargesDeleted();
     }
 
-    /**
-     * A new Order and what its Asaas calls need, or the Order that already awaited payment. The CPF is there only when
-     * the Student has no Asaas customer yet.
-     */
-    record Placement(long orderId, String code, PaymentMethod method, int amountCents, String courseTitle,
-                     String courseSlug, int maxInstallments, String studentName, String customerId, String cpf,
-                     Order existing) {
+    /** What opening a placement found: a new Order, with what its Asaas calls need, or the one already awaiting. */
+    sealed interface Placement {
 
-        /** The new Order, with its Course and Student loaded. */
-        static Placement of(OrderEntity order, String customerId, String cpf) {
-            CourseEntity course = order.getCourse();
-            return new Placement(order.getId(), order.getCode(), order.getMethod(), order.getAmountCents(),
-                    course.getTitle(), course.getSlug(), course.getMaxInstallments(), order.getStudent().getName(),
-                    customerId, cpf, null);
+        /** A new card Order, with what its Checkout needs. */
+        record NewCard(long orderId, String code, int amountCents, String courseTitle, String courseSlug,
+                       int maxInstallments) implements Placement {
         }
 
-        static Placement ofExisting(Order existing) {
-            return new Placement(0, existing.code(), existing.method(), existing.amountCents(), null, null, 0, null,
-                    null, null, existing);
+        /** A new Pix Order, with what its charge needs: who pays it at Asaas. */
+        record NewPix(long orderId, String code, int amountCents, String courseTitle, Payer payer)
+                implements Placement {
         }
 
-        /** Never shows the CPF, wherever the placement ends up printed. */
-        @Override
-        public String toString() {
-            return "Placement[orderId=" + orderId + ", code=" + code + "]";
+        /** The Order that already awaited payment, as its Student sees it. */
+        record Awaiting(Order order) implements Placement {
+        }
+
+        /** Who pays a Pix at Asaas: the Student's customer there, or the one their first Pix makes. */
+        sealed interface Payer {
+        }
+
+        /** The Student's Asaas customer, made by an earlier Pix. */
+        record Customer(String id) implements Payer {
+        }
+
+        /** What makes the Student's Asaas customer: their name, and their CPF, kept only in the answer. */
+        record NewCustomer(String name, String cpf) implements Payer {
+
+            /** Never shows the CPF, wherever the placement ends up printed. */
+            @Override
+            public String toString() {
+                return "NewCustomer[cpf=hidden]";
+            }
         }
     }
 }
