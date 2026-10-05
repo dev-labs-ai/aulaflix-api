@@ -18,14 +18,18 @@ import com.devlabs.aulaflix.AdminApi;
 import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.IntegrationTest;
+import com.devlabs.aulaflix.Mailpit;
 import com.devlabs.aulaflix.StoredCourses;
+import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.WaitlistApi;
 import com.devlabs.aulaflix.service.AccountService;
+import com.devlabs.aulaflix.service.EmailOutbox;
 
 /**
  * Logs must not become a leak. This asserts only what never appears, whatever the wording of the lines: the emails
- * that joined and left a Waitlist, through refusals, the soft limit and the Admin's reads included.
+ * that joined and left a Waitlist, through refusals, the soft limit and the Admin's reads included, and the emails and
+ * unsubscribe tokens a launch handles.
  */
 @ExtendWith(OutputCaptureExtension.class)
 class WaitlistLogsTest extends IntegrationTest {
@@ -37,6 +41,15 @@ class WaitlistLogsTest extends IntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private StoredVideos storedVideos;
+
+    @Autowired
+    private EmailOutbox outbox;
+
+    @Autowired
+    private Mailpit mailpit;
 
     @Test
     void logsNoEmailThatJoinsOrLeaves(CapturedOutput output) {
@@ -68,5 +81,33 @@ class WaitlistLogsTest extends IntegrationTest {
                 .doesNotContainIgnoringCase(visitor)
                 .doesNotContainIgnoringCase(invalid)
                 .doesNotContainIgnoringCase(studentEmail);
+    }
+
+    @Test
+    void logsNoEmailNorTokenThatTheLaunchOrAnUnsubscribeHandles(CapturedOutput output) {
+        String adminEmail = "admin-" + UUID.randomUUID() + "@aulaflix.com.br";
+        accounts.createAdmin(adminEmail, "Ana", PASSWORD);
+        AdminCourses courses = new AdminCourses(mvc, new AdminApi(mvc).sessionToken(adminEmail, PASSWORD),
+                storedVideos);
+        String slug = AdminCourses.newSlug();
+        long course = courses.announced(slug);
+        long other = courses.announced(AdminCourses.newSlug());
+        WaitlistApi waitlists = new WaitlistApi(new BffApi(mvc));
+        String visitor = newEmail();
+        assertThat(waitlists.join(course, visitor)).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(waitlists.join(other, visitor)).hasStatus(HttpStatus.NO_CONTENT);
+
+        courses.launch(course, slug);
+        outbox.drain();
+        String token = WaitlistApi.unsubscribeTokenIn(mailpit.to(visitor).getFirst());
+        String tampered = new StringBuilder(token).reverse().toString();
+        assertThat(waitlists.unsubscribe(tampered)).hasStatus(HttpStatus.BAD_REQUEST);
+        assertThat(waitlists.unsubscribe(token)).hasStatus(HttpStatus.NO_CONTENT);
+
+        assertThat(output.getAll()).isNotBlank()
+                .contains("invalid-unsubscribe-link")
+                .doesNotContainIgnoringCase(visitor)
+                .doesNotContain(token)
+                .doesNotContain(tampered);
     }
 }

@@ -21,12 +21,15 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEventEntity
     @Transactional
     @Modifying
     @Query(value = """
-            insert into webhook_events (id, asaas_event_id, event_type, charge_id, body, received_at, state)
-            values (nextval('seq_webhook_event'), :eventId, :eventType, :chargeId, :body, :receivedAt, :state)
+            insert into webhook_events (id, asaas_event_id, event_type, charge_id, checkout_id, body, received_at,
+                                        state)
+            values (nextval('seq_webhook_event'), :eventId, :eventType, :chargeId, :checkoutId, :body, :receivedAt,
+                    :state)
             on conflict (asaas_event_id) do nothing""", nativeQuery = true)
     int insertUnlessReceived(@Param("eventId") String eventId, @Param("eventType") String eventType,
-                             @Param("chargeId") String chargeId, @Param("body") byte[] body,
-                             @Param("receivedAt") Instant receivedAt, @Param("state") String state);
+                             @Param("chargeId") String chargeId, @Param("checkoutId") String checkoutId,
+                             @Param("body") byte[] body, @Param("receivedAt") Instant receivedAt,
+                             @Param("state") String state);
 
     /** The events in the state, oldest first. */
     List<WebhookEventEntity> findByStateOrderById(WebhookEventState state);

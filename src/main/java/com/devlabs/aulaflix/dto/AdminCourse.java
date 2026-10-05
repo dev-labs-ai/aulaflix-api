@@ -39,6 +39,11 @@ public record AdminCourse(
         @Schema(description = "How many are waiting for the launch; only while the Course is Coming soon")
         Long waitlistCount,
 
+        @Schema(description = """
+                How many launch emails the launch sent: one per Waitlist entry, but none to a Student enrolled \
+                already. Only once the Course went On sale from Coming soon""")
+        Integer notifiedCount,
+
         @Schema(description = "When the Course went Coming soon; left out if it never did")
         Instant comingSoonAt,
 

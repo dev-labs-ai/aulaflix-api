@@ -43,6 +43,21 @@ public final class AsaasWebhooks {
         return "evt_" + UUID.randomUUID().toString().replace("-", "") + "&" + System.nanoTime();
     }
 
+    /** A Checkout event as Asaas's documentation words it: the Checkout's id and status, and no payment. */
+    public static String checkoutEvent(String eventId, String event, String checkoutId, String status) {
+        return """
+                {
+                  "id": "%s",
+                  "event": "%s",
+                  "dateCreated": "2026-10-05 15:45:03",
+                  "checkout": {
+                    "id": "%s",
+                    "status": "%s",
+                    "minutesToExpire": 60
+                  }
+                }""".formatted(eventId, event, checkoutId, status);
+    }
+
     /**
      * A payment event as Asaas words it, its {@code payment} as the charge stood when the event fired. The worker
      * re-reads the charge, so this body only names it.

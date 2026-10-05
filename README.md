@@ -13,6 +13,7 @@ mkdir -p secrets
 openssl rand -base64 24 > secrets/spring.datasource.password
 openssl rand -base64 32 > secrets/aulaflix.bff.key   # the web's server sends the same key
 openssl rand -base64 32 > secrets/aulaflix.codes.hmac-key   # the 6-digit codes are stored as HMACs under it
+openssl rand -base64 32 > secrets/aulaflix.waitlist.unsubscribe-key   # AES-256: the launch email's unsubscribe links
 # The storage: its root, and the API's two keys, which storage-init creates. Hex, since a key ID goes into URLs.
 openssl rand -hex 10 > secrets/storage.root-user
 openssl rand -hex 24 > secrets/storage.root-password
@@ -32,8 +33,9 @@ docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on
 ```
 
 The API applies its Flyway migrations when it starts. It refuses to start without a BFF key or a codes HMAC key of at
-least 32 characters, without the storage's two keys, without the Asaas key and webhook token, or without the Turnstile
-secret.
+least 32 characters, without an unsubscribe key of 32 bytes in base64, without the storage's two keys, without the
+Asaas key and webhook token, or without the Turnstile secret. Keep the unsubscribe key: the links in launch emails
+never expire, and a new key breaks every one already sent.
 
 AIStor Free answers every S3 request with a denial until it has its license, which the same file serves locally, in
 the tests and in production. On every `up`, `storage-init` creates the private `videos` bucket and the API's two
@@ -51,6 +53,7 @@ The secret files, and the services that mount them:
 | `spring.datasource.password` | postgres, api |
 | `aulaflix.bff.key` | api, web |
 | `aulaflix.codes.hmac-key` | api |
+| `aulaflix.waitlist.unsubscribe-key` | api |
 | `aulaflix.storage.read-only.access-key-id`, `aulaflix.storage.read-only.secret-access-key` | storage-init, api |
 | `aulaflix.storage.read-write.access-key-id`, `aulaflix.storage.read-write.secret-access-key` | storage-init, api |
 | `storage.root-user`, `storage.root-password` | storage, storage-init |
@@ -319,6 +322,24 @@ when an entry holds the Account's email, made as a Visitor before signing up too
 holds only the email and the Course, with no link to an Account; Visitors leave by the unsubscribe link of the launch
 email. An Admin's token gets 403 on all of these.
 
+### The launch email and unsubscribing
+
+When a Course moves from Coming soon to On sale, the same transaction queues one launch email per entry of its
+Waitlist, but none to a Student with an active Enrollment in the Course, then deletes every entry, and stores how many
+it emailed as the Course's `notifiedCount`, which the Admin's reads show. If the move fails, no email goes and no entry
+goes. A retried move answers 200 and emails no one again; a Draft that goes On sale has no Waitlist, and no
+`notifiedCount`. The email carries the summary, the price, the Pix price, the installments and a link to
+`{webBase}/cursos/{slug}`.
+
+Each launch email carries a token: the recipient's email under AES-256-GCM, base64url, sealed with the secret file
+`aulaflix.waitlist.unsubscribe-key`. It never expires, and the API keeps no record of it. The email offers it twice:
+`List-Unsubscribe: <{webBase}/api/waitlist/unsubscribe?token=…>` with `List-Unsubscribe-Post:
+List-Unsubscribe=One-Click`, which a mail client posts to in one click and a mail scanner never does, and a body link
+to `{webBase}/cancelar-aviso#<token>`, a page that asks first. Either way the web posts the token to
+`POST /v1/waitlist-unsubscriptions` `{ token }`, which takes the email off every Waitlist and answers 204, whether or
+not it was on any. A token the key did not make, or one changed in any way, gets 400 `invalid-unsubscribe-link`. Only
+the general per-IP limit of BFF requests applies. Joining again later is fresh consent.
+
 ## Orders
 
 A Student buys an On sale Course by Pix on AulaFlix's page ([ADR 0006](docs/adr/0006-card-payments-on-asaas-pix-on-our-page.md)):
@@ -393,6 +414,29 @@ unchanged for the next run. A call Asaas refuses is logged at `ERROR`: the expir
 reconciliation reads an awaiting Order again on its next run, until it expires, and gives up on a cancelled Order's
 charges.
 
+### Paying by card
+
+A card is paid on Asaas's own page, a Checkout, so that it never touches AulaFlix: `POST /v1/account/orders`
+`{ courseId, method: "CARD" }` asks for no CPF, writes the Order at the Course's current price, and asks Asaas for a
+Checkout under the Order's code, for that price, in one payment or up to the Course's `maxInstallments`, living 60
+minutes. It answers 201 with the Order and its `checkout` `{ url, expiresAt }`; the BFF sends the browser to `url`,
+exactly as Asaas gave it. Asaas sends the Student back to `{aulaflix.web.base-url}/cursos/{slug}/comprar?pedido={code}`
+after paying or once the Checkout expired, and with `&cancelado=1` after cancelling; coming back proves nothing, and the
+page reads the Order. Asking for card again answers the awaiting Order with 200. When Asaas fails, the answers are those
+of a Pix, and the Order is cancelled; a Checkout made all the same has a link no one got, and expires on its own.
+
+The card's charges, one per installment, are made only once the Student pays, and name the Checkout in
+`checkoutSession`, by which the worker finds the Order. Each re-read must be on the Order's Checkout, under its code or
+under none, and its installment plan must total the Order's amount. The first confirmed charge makes the Order `PAID`,
+with `installments`, the number the Student chose, and grants the one Enrollment, however many `PAYMENT_CONFIRMED` the
+installments bring. A card held for Asaas's risk analysis keeps the Order awaiting payment. On
+`PAYMENT_REPROVED_BY_RISK_ANALYSIS`, a re-read that shows the charge neither paid nor held makes the Order `DECLINED`:
+it grants nothing, leaves the list, and the Student may place a new Order.
+
+A card Order expires at 60 minutes in the expiry job, or on Asaas's `CHECKOUT_EXPIRED` event; either way the
+Checkout's charges are re-read first, a payment wins, and a card held for risk analysis keeps the Order awaiting
+payment. Reconciliation re-reads them too, after its delay.
+
 ### Finding and refunding Orders
 
 `GET /v1/admin/orders` lists every Order, in every state, newest first: 20 to a page by default (`page`, from 0, and
@@ -410,7 +454,8 @@ had. An Order already `REFUNDING` or `REFUNDED` answers 200 as it is, without ca
 refuses, with 409 `refund-refused` carrying Asaas's `reasons` (`code` and `description`), nor when it cannot be
 reached, with 503 `payment-unavailable`. An Order that was never paid gets 409 `order-not-paid`. Reconciliation
 re-reads every `REFUNDING` Order's charge on each run until Asaas reports its refund `DONE`; the Order then becomes
-`REFUNDED`, with `refundedAt`.
+`REFUNDED`, with `refundedAt`. A card paid in installments is refunded through its installment plan, every
+installment at once; an Admin also sees a card Order's `installments`, `asaasCheckoutId` and `asaasInstallmentId`.
 
 ### Refunds made in Asaas, chargebacks and upheld Pix blocks
 

@@ -8,10 +8,11 @@ import org.springframework.stereotype.Service;
 
 /**
  * The expiry job: an Order still awaiting payment at its {@code expiresAt} expires, 30 minutes after it was placed for
- * a Pix. It re-reads the charge from Asaas first, and a payment wins: the Order is paid instead. Otherwise the charge
- * is deleted, so that no one pays it afterwards, and only then the Order expires, which emails no one. Only one run
- * goes at a time: the scheduled job, whose fixed delay never overlaps two, or a test, once, synchronously, with the job
- * off.
+ * a Pix, and 60 for a card. It re-reads Asaas first, and a payment wins: the Order is paid instead. Otherwise a Pix's
+ * charge is deleted, so that no one pays it afterwards, and only then the Order expires, which emails no one. A card's
+ * Checkout expires at Asaas on its own; a card Asaas holds for risk analysis keeps its Order awaiting payment. Only one
+ * run goes at a time: the scheduled job, whose fixed delay never overlaps two, or a test, once, synchronously, with the
+ * job off.
  */
 @Service
 public class OrderExpiry {
@@ -20,12 +21,15 @@ public class OrderExpiry {
 
     private final OrderUpkeep upkeep;
     private final OrderPayments payments;
+    private final CheckoutRereads checkouts;
     private final AsaasGateway asaas;
     private final Clock clock;
 
-    public OrderExpiry(OrderUpkeep upkeep, OrderPayments payments, AsaasGateway asaas, Clock clock) {
+    public OrderExpiry(OrderUpkeep upkeep, OrderPayments payments, CheckoutRereads checkouts, AsaasGateway asaas,
+                       Clock clock) {
         this.upkeep = upkeep;
         this.payments = payments;
+        this.checkouts = checkouts;
         this.asaas = asaas;
         this.clock = clock;
     }
@@ -40,7 +44,9 @@ public class OrderExpiry {
     public void expireDue() {
         for (OrderUpkeep.DueOrder due : upkeep.expiredBy(clock.instant())) {
             try {
-                payOrDeleteTheCharge(due);
+                if (!leftToExpire(due)) {
+                    continue;
+                }
             } catch (AsaasUnavailableException failure) {
                 log.warn("Left Order {} and the rest to expire on the next run: {}", due.code(),
                         failure.getMessage());
@@ -53,9 +59,27 @@ public class OrderExpiry {
     }
 
     /**
+     * Applies what Asaas shows to the Order, and answers whether it is still left to expire: a card Order whose
+     * Checkout's charges paid it is not, nor one Asaas holds for risk analysis.
+     */
+    private boolean leftToExpire(OrderUpkeep.DueOrder due) {
+        if (due.checkoutId() == null) {
+            payOrDeleteTheCharge(due);
+            return true;
+        }
+        CheckoutRereads.Outcome outcome = checkouts.reread(due.checkoutId());
+        if (outcome == CheckoutRereads.Outcome.HELD_FOR_RISK_ANALYSIS) {
+            log.info("Left card Order {} awaiting payment past its expiry: Asaas holds it for risk analysis",
+                    due.code());
+        }
+        return outcome == CheckoutRereads.Outcome.UNPAID;
+    }
+
+    /**
      * Pays the Order when the re-read shows its charge paid, which leaves it nothing to expire; otherwise deletes the
      * charge, unless it is deleted already. An Order whose charge's id never came back was left by an API stopped while
-     * placing it, before its QR code reached the Student, so nothing under its code was paid: every charge there goes.
+     * placing it, before its QR code, or its Checkout's link, reached the Student, so nothing under its code was paid:
+     * every charge there goes.
      */
     private void payOrDeleteTheCharge(OrderUpkeep.DueOrder due) {
         if (due.chargeId() == null) {

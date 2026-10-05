@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.devlabs.aulaflix.domain.CourseStatus;
 import com.devlabs.aulaflix.domain.OrderStatus;
+import com.devlabs.aulaflix.domain.PaymentMethod;
 import com.devlabs.aulaflix.domain.entity.AccountEntity;
 import com.devlabs.aulaflix.domain.entity.CourseEntity;
 import com.devlabs.aulaflix.domain.entity.OrderEntity;
@@ -35,6 +36,9 @@ class OrderPlacements {
 
     private static final Duration PIX_LIFETIME = Duration.ofMinutes(30);
 
+    /** How long a card Order awaits payment, and its Checkout lives at Asaas. */
+    static final Duration CARD_LIFETIME = Duration.ofMinutes(60);
+
     private final OrderRepository orders;
     private final AccountRepository accounts;
     private final CourseRepository courses;
@@ -51,11 +55,13 @@ class OrderPlacements {
     }
 
     /**
-     * Writes a new Pix Order awaiting payment, at the Course's current Pix price, or finds the one already awaiting. A
-     * Student without an Asaas customer must send a valid CPF, which is checked here and kept only in the answer.
+     * Writes a new Order awaiting payment, or finds the one already awaiting. A Pix Order is at the Course's current
+     * Pix price, and a Student without an Asaas customer must send a valid CPF for it, which is checked here and kept
+     * only in the answer. A card Order is at the Course's current price, and asks for no CPF: the Student gives Asaas
+     * their details on its page.
      */
     @Transactional
-    Placement open(long studentId, long courseId, String cpf) {
+    Placement open(long studentId, long courseId, PaymentMethod method, String cpf) {
         AccountEntity student = accounts.findLockedById(studentId).orElseThrow();
         CourseEntity course = courses.findById(courseId)
                 .filter(found -> found.getStatus() == CourseStatus.ON_SALE)
@@ -68,16 +74,21 @@ class OrderPlacements {
         if (awaiting.isPresent()) {
             return Placement.ofExisting(OrderViews.withPayment(awaiting.get()));
         }
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        if (method == PaymentMethod.CARD) {
+            OrderEntity order = orders.save(OrderEntity.card(OrderCodes.next(), student, course, now,
+                    now.plus(CARD_LIFETIME)));
+            log.info("Student {} placed card Order {} for Course {}", studentId, order.getCode(), courseId);
+            return Placement.of(order, null, null);
+        }
         String customerId = student.getAsaasCustomerId();
         String cpfDigits = customerId == null ? Cpf.requireValid(cpf) : null;
-        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         int amountCents = Pricing.of(course.getPriceCents(), course.getPixDiscountPercent(),
                 course.getMaxInstallments()).pixPriceCents();
         OrderEntity order = orders.save(OrderEntity.pix(OrderCodes.next(), student, course, amountCents, now,
                 now.plus(PIX_LIFETIME)));
         log.info("Student {} placed Pix Order {} for Course {}", studentId, order.getCode(), courseId);
-        return new Placement(order.getId(), order.getCode(), amountCents, course.getTitle(), student.getName(),
-                customerId, cpfDigits, null);
+        return Placement.of(order, customerId, cpfDigits);
     }
 
     /** Keeps the Student's Asaas customer, unless another placement kept one first, whose id is answered instead. */
@@ -95,6 +106,13 @@ class OrderPlacements {
     Order recordPixCharge(long orderId, String chargeId, AsaasGateway.PixQrCode qrCode) {
         OrderEntity order = orders.findWithCourseById(orderId).orElseThrow();
         order.recordPixCharge(chargeId, qrCode.encodedImage(), qrCode.payload());
+        return OrderViews.withPayment(order);
+    }
+
+    @Transactional
+    Order recordCheckout(long orderId, AsaasGateway.Checkout checkout) {
+        OrderEntity order = orders.findWithCourseById(orderId).orElseThrow();
+        order.recordCheckout(checkout.id(), checkout.link());
         return OrderViews.withPayment(order);
     }
 
@@ -122,11 +140,21 @@ class OrderPlacements {
      * A new Order and what its Asaas calls need, or the Order that already awaited payment. The CPF is there only when
      * the Student has no Asaas customer yet.
      */
-    record Placement(long orderId, String code, int amountCents, String courseTitle, String studentName,
-                     String customerId, String cpf, Order existing) {
+    record Placement(long orderId, String code, PaymentMethod method, int amountCents, String courseTitle,
+                     String courseSlug, int maxInstallments, String studentName, String customerId, String cpf,
+                     Order existing) {
+
+        /** The new Order, with its Course and Student loaded. */
+        static Placement of(OrderEntity order, String customerId, String cpf) {
+            CourseEntity course = order.getCourse();
+            return new Placement(order.getId(), order.getCode(), order.getMethod(), order.getAmountCents(),
+                    course.getTitle(), course.getSlug(), course.getMaxInstallments(), order.getStudent().getName(),
+                    customerId, cpf, null);
+        }
 
         static Placement ofExisting(Order existing) {
-            return new Placement(0, existing.code(), existing.amountCents(), null, null, null, null, existing);
+            return new Placement(0, existing.code(), existing.method(), existing.amountCents(), null, null, 0, null,
+                    null, null, existing);
         }
 
         /** Never shows the CPF, wherever the placement ends up printed. */

@@ -59,12 +59,13 @@ class OrderRefunds {
         OrderEntity order = orders.findWithPartiesByCode(code).orElseThrow(OrderNotFoundException::new);
         if (order.getStatus() == OrderStatus.REFUNDING || order.getStatus() == OrderStatus.REFUNDED) {
             return new RefundStart(views.view(order), order.getId(), order.getStudent().getId(),
-                    order.getAsaasPaymentId());
+                    order.getAsaasPaymentId(), order.getAsaasInstallmentId());
         }
         if (order.getStatus() != OrderStatus.PAID) {
             throw new OrderNotPaidException();
         }
-        return new RefundStart(null, order.getId(), order.getStudent().getId(), order.getAsaasPaymentId());
+        return new RefundStart(null, order.getId(), order.getStudent().getId(), order.getAsaasPaymentId(),
+                order.getAsaasInstallmentId());
     }
 
     /** Records the refund Asaas took at the Admin's request, and answers the Order as it now is. */
@@ -100,7 +101,7 @@ class OrderRefunds {
     List<OrderUpkeep.DueOrder> refunding() {
         return orders.findRefunding().stream()
                 .map(order -> new OrderUpkeep.DueOrder(order.getId(), order.getCode(), order.getStudent().getId(),
-                        order.getAsaasPaymentId()))
+                        order.getAsaasPaymentId(), order.getAsaasCheckoutId()))
                 .toList();
     }
 
@@ -120,8 +121,9 @@ class OrderRefunds {
 
     /**
      * Where a refund starts from: the Order's view when it is refunding or refunded already, and nothing is left to
-     * do; otherwise null, with the Order, its Student and the charge to refund.
+     * do; otherwise null, with the Order, its Student and the charge to refund, or, for a card paid in installments,
+     * the installment plan, whose refund takes every installment's charge.
      */
-    record RefundStart(AdminOrder already, long orderId, long studentId, String chargeId) {
+    record RefundStart(AdminOrder already, long orderId, long studentId, String chargeId, String installmentId) {
     }
 }

@@ -47,6 +47,16 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             where o.asaasPaymentId = :chargeId""")
     Optional<OrderEntity> findWithPartiesByChargeId(@Param("chargeId") String chargeId);
 
+    /** The Student who placed the card Order paid on this Checkout. */
+    @Query("select o.student.id from OrderEntity o where o.asaasCheckoutId = :checkoutId")
+    Optional<Long> findStudentIdByCheckoutId(@Param("checkoutId") String checkoutId);
+
+    /** The card Order paid on this Checkout, with its Student and its Course. */
+    @Query("""
+            select o from OrderEntity o join fetch o.student join fetch o.course
+            where o.asaasCheckoutId = :checkoutId""")
+    Optional<OrderEntity> findWithPartiesByCheckoutId(@Param("checkoutId") String checkoutId);
+
     /** The Orders still awaiting payment that expired by the moment given, the earliest due first. */
     @Query("""
             select o from OrderEntity o
@@ -54,11 +64,14 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             order by o.expiresAt, o.id""")
     List<OrderEntity> findAwaitingExpiredBy(@Param("now") Instant now);
 
-    /** The Orders with a charge that have awaited payment since the moment given or before, the oldest first. */
+    /**
+     * The Orders with a charge or a Checkout that have awaited payment since the moment given or before, the oldest
+     * first.
+     */
     @Query("""
             select o from OrderEntity o
             where o.status = com.devlabs.aulaflix.domain.OrderStatus.AWAITING_PAYMENT
-              and o.asaasPaymentId is not null and o.createdAt <= :before
+              and (o.asaasPaymentId is not null or o.asaasCheckoutId is not null) and o.createdAt <= :before
             order by o.createdAt, o.id""")
     List<OrderEntity> findAwaitingWithChargePlacedBy(@Param("before") Instant before);
 

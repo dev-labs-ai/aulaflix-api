@@ -33,7 +33,7 @@ final class AdminRun {
     private List<ScheduledTask> scheduledTasks = List.of();
 
     /**
-     * The storage and the codes' HMAC key only have to be configured: the API refuses to start without them, in admin
+     * The storage, the codes' HMAC key and the unsubscribe key only have to be configured: the API refuses to start without them, in admin
      * mode too. HIBP is the tests' own, since a new password is checked against it. Asaas's key and webhook token only
      * have to be there: admin mode never calls Asaas, nor receives its webhook.
      */
@@ -46,6 +46,7 @@ final class AdminRun {
         properties.put("aulaflix.asaas.api-key", Asaas.API_KEY);
         properties.put("aulaflix.asaas.webhook-token", Asaas.WEBHOOK_TOKEN);
         properties.put("aulaflix.codes.hmac-key", IntegrationTest.CODES_HMAC_KEY);
+        properties.put("aulaflix.waitlist.unsubscribe-key", IntegrationTest.UNSUBSCRIBE_KEY);
     }
 
     static AdminRun against(PostgreSQLContainer postgres, AistorContainer storage, Hibp hibp) {

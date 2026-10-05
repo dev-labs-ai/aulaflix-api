@@ -51,6 +51,19 @@ public record AdminOrder(
         @Schema(description = "The id of its Asaas charge; left out until Asaas gave one", example = "pay_080225913252")
         String asaasChargeId,
 
+        @Schema(description = "How many installments the Student chose on Asaas's page; left out until a card pays",
+                example = "10")
+        Integer installments,
+
+        @Schema(description = "The id of a card Order's Asaas Checkout; left out for a Pix, and until Asaas gave one",
+                example = "2bd251f0-09b2-44ff-8a0c-a5cb29e5bbda")
+        String asaasCheckoutId,
+
+        @Schema(description = """
+                The id of the Asaas installment plan a card paid in installments makes, through which it is refunded; \
+                left out otherwise""", example = "ins_000005219613")
+        String asaasInstallmentId,
+
         @Schema(description = "When its refund was asked of Asaas; left out until then")
         Instant refundRequestedAt,
 

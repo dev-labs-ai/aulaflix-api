@@ -72,6 +72,9 @@ class AdminOrderViews {
                 order.getPaidAt() == null ? null : Duration.between(order.getPaidAt(), now).toDays(),
                 enrollment == null ? null : grantedView(enrollment),
                 order.getAsaasPaymentId(),
+                order.getInstallments(),
+                order.getAsaasCheckoutId(),
+                order.getAsaasInstallmentId(),
                 order.getRefundRequestedAt(),
                 summaryOf(order.getRefundRequestedBy()),
                 order.getRefundedAt());

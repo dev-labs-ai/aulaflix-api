@@ -35,7 +35,8 @@ import com.devlabs.aulaflix.service.OrderService;
 @RestController
 @RequestMapping("/v1/account/orders")
 @SecurityRequirement(name = OpenApiConfiguration.BEARER)
-@Tag(name = "Orders", description = "Placing Orders, paid by Pix on AulaFlix's page, and reading the Student's own")
+@Tag(name = "Orders", description = """
+        Placing Orders, paid by Pix on AulaFlix's page or by card on an Asaas Checkout, and reading the Student's own""")
 public class OrderController {
 
     private static final String ORDERS = "/v1/account/orders/";
@@ -49,11 +50,14 @@ public class OrderController {
     @PostMapping
     @PreAuthorize("hasRole('STUDENT')")
     @Operation(summary = "Place an Order", description = """
-            Buys an On sale Course by Pix, at its current Pix price: Asaas makes a charge, whose QR code and \
-            copy-and-paste code the page shows until the Order expires, 30 minutes later. Asking again while that \
-            Order awaits payment answers it again and makes no new charge. The Student's first Pix needs their CPF, \
-            which makes their Asaas customer and is never stored; later ones need none. Each placement counts \
-            against the Student's limit, the IP's and everyone's.""")
+            Buys an On sale Course. By Pix, at its current Pix price: Asaas makes a charge, whose QR code and \
+            copy-and-paste code the page shows until the Order expires, 30 minutes later. The Student's first Pix \
+            needs their CPF, which makes their Asaas customer and is never stored; later ones need none. By card, at \
+            its current price: Asaas makes a Checkout, its own page, where the Student pays in up to the Course's \
+            maximum installments until the Order expires, 60 minutes later; no CPF is asked. Asaas sends the Student \
+            back to the Course's checkout page, which proves no payment: the Order's read does. Asking again while \
+            that Order awaits payment answers it again and makes nothing new at Asaas. Each placement counts against \
+            the Student's limit, the IP's and everyone's.""")
     @ApiResponse(responseCode = "201", description = "Placed; `Location` is the new Order's address",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = Order.class)))
@@ -98,7 +102,8 @@ public class OrderController {
     @GetMapping("/{code}")
     @PreAuthorize("hasRole('STUDENT')")
     @Operation(summary = "Read one of the Student's Orders", description = """
-            In any state, with the Pix QR code while it awaits payment; the page polls it to notice the payment.""")
+            In any state, with the Pix QR code or the Checkout's link while it awaits payment; the page polls it to \
+            notice the payment.""")
     @ApiResponse(responseCode = "200", description = "The Order",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = Order.class)))

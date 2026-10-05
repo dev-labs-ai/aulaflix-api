@@ -11,10 +11,10 @@ import org.springframework.stereotype.Service;
 
 /**
  * The reconciliation job, so that no paying Student waits on a lost webhook: it re-reads from Asaas the charge of every
- * Order that has awaited payment longer than the delay, and applies what the re-read shows, as the webhook worker
- * would. It follows every refunding Order until Asaas reports its refund done, and re-reads every paid Order once per
- * interval, so that money going back, by a refund made in the Asaas UI, a chargeback or an upheld Pix cautionary
- * block, ends access even when its webhook was lost. It also deletes any charge a failed
+ * Order that has awaited payment longer than the delay, or a card Order's Checkout's charges, and applies what the
+ * re-read shows, as the webhook worker would. It follows every refunding Order until Asaas reports its refund done, and
+ * re-reads every paid Order once per interval, so that money going back, by a refund made in the Asaas UI, a chargeback
+ * or an upheld Pix cautionary block, ends access even when its webhook was lost. It also deletes any charge a failed
  * placement left at Asaas under its cancelled Order's code, once the delay gives a charge whose creation timed out the
  * time to reach Asaas. Only one run goes at a time: the scheduled job, whose fixed delay never overlaps two, or a
  * test, once, synchronously, with the job off.
@@ -27,6 +27,7 @@ public class OrderReconciliation {
     private final OrderUpkeep upkeep;
     private final OrderPlacements placements;
     private final OrderPayments payments;
+    private final CheckoutRereads checkouts;
     private final OrderRefunds refunds;
     private final AsaasGateway asaas;
     private final Clock clock;
@@ -34,11 +35,12 @@ public class OrderReconciliation {
     private final Duration paidRecheckInterval;
 
     public OrderReconciliation(OrderUpkeep upkeep, OrderPlacements placements, OrderPayments payments,
-                               OrderRefunds refunds, AsaasGateway asaas, Clock clock, ReconciliationDelay delay,
-                               PaidRecheckInterval paidRecheckInterval) {
+                               CheckoutRereads checkouts, OrderRefunds refunds, AsaasGateway asaas, Clock clock,
+                               ReconciliationDelay delay, PaidRecheckInterval paidRecheckInterval) {
         this.upkeep = upkeep;
         this.placements = placements;
         this.payments = payments;
+        this.checkouts = checkouts;
         this.refunds = refunds;
         this.asaas = asaas;
         this.clock = clock;
@@ -67,8 +69,13 @@ public class OrderReconciliation {
         }
     }
 
+    /** A Pix's charge is re-read by its id; a card's, made only once its payer paid, through the Order's Checkout. */
     private void reread(OrderUpkeep.DueOrder due) {
         try {
+            if (due.chargeId() == null) {
+                checkouts.reread(due.checkoutId());
+                return;
+            }
             payments.applyReread(asaas.charge(due.chargeId()));
         } catch (AsaasRefusedException refusal) {
             log.error("Could not reconcile Order {}: {}", due.code(), refusal.getMessage());

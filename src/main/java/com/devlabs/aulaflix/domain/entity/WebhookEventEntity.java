@@ -29,6 +29,9 @@ public class WebhookEventEntity {
     @Column(name = "charge_id", length = 64, updatable = false)
     private String chargeId;
 
+    @Column(name = "checkout_id", length = 64, updatable = false)
+    private String checkoutId;
+
     @Column(nullable = false, updatable = false)
     private byte[] body;
 
@@ -69,6 +72,10 @@ public class WebhookEventEntity {
 
     public String getChargeId() {
         return chargeId;
+    }
+
+    public String getCheckoutId() {
+        return checkoutId;
     }
 
     public WebhookEventState getState() {

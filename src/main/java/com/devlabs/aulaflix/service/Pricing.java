@@ -1,11 +1,20 @@
 package com.devlabs.aulaflix.service;
 
+import java.util.Objects;
+
+import com.devlabs.aulaflix.domain.entity.CourseEntity;
 import com.devlabs.aulaflix.dto.CoursePricing;
 
 /** The pricing maths, done once here, so the web never does it. */
 final class Pricing {
 
     private Pricing() {
+    }
+
+    /** An On sale Course's: its price and installments are always set; a Course without a Pix discount has none. */
+    static CoursePricing of(CourseEntity course) {
+        return of(course.getPriceCents(), Objects.requireNonNullElse(course.getPixDiscountPercent(), 0),
+                course.getMaxInstallments());
     }
 
     /**

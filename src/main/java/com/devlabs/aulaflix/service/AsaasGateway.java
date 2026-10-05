@@ -1,6 +1,7 @@
 package com.devlabs.aulaflix.service;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
@@ -18,6 +19,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
  * The Asaas adapter: the few calls the Orders module makes, over Asaas's REST API v3, as a thin {@link RestClient}
@@ -35,6 +37,9 @@ public class AsaasGateway {
     private static final Set<String> REFUND_STATUSES = Set.of("REFUND_REQUESTED", "REFUND_IN_PROGRESS");
     private static final Set<String> CHARGEBACK_STATUSES = Set.of("CHARGEBACK_REQUESTED", "CHARGEBACK_DISPUTE",
             "AWAITING_CHARGEBACK_REVERSAL");
+
+    /** Asaas takes an item's name of up to 30 characters. */
+    private static final int ITEM_NAME_MAX_CHARACTERS = 30;
 
     private final RestClient asaas;
     private final Duration retryAfter;
@@ -69,6 +74,31 @@ public class AsaasGateway {
                 .body(Created.class));
     }
 
+    /**
+     * Makes a Checkout, Asaas's own page, where the payer pays one item by card, at once or in up to the installments
+     * given, until it expires; and answers its id and the link to send the payer to, which Asaas wants used exactly as
+     * given. The payer gives Asaas their own details there.
+     */
+    public Checkout createCardCheckout(CardCheckout checkout) {
+        String operation = "creating a Checkout";
+        boolean inInstallments = checkout.maxInstallments() > 1;
+        Checkout created = call(operation, () -> asaas.post().uri("/checkouts")
+                .body(new NewCheckout(List.of("CREDIT_CARD"),
+                        inInstallments ? List.of("DETACHED", "INSTALLMENT") : List.of("DETACHED"),
+                        Math.toIntExact(checkout.lifetime().toMinutes()), checkout.externalReference(),
+                        new Callback(checkout.returnUrl().toString(), checkout.cancelUrl().toString(),
+                                checkout.returnUrl().toString()),
+                        List.of(new Item(itemName(checkout.item()), checkout.description(), 1,
+                                BigDecimal.valueOf(checkout.amountCents(), 2))),
+                        inInstallments ? new Installment(checkout.maxInstallments()) : null))
+                .retrieve()
+                .body(Checkout.class));
+        if (created == null || created.id() == null || created.link() == null) {
+            throw unreadable(operation);
+        }
+        return created;
+    }
+
     /** The QR code that pays the Pix charge: its PNG in base64, and its copy-and-paste code. */
     public PixQrCode pixQrCode(String chargeId) {
         String operation = "reading a Pix QR code";
@@ -83,28 +113,37 @@ public class AsaasGateway {
 
     /** The ids of the charges made under the external reference that are not deleted yet. */
     public List<String> chargesUnder(String externalReference) {
-        String operation = "listing charges";
-        Charges charges = call(operation, () -> asaas.get()
-                .uri(uri -> uri.path("/payments").queryParam("externalReference", externalReference).build())
-                .retrieve()
-                .body(Charges.class));
-        if (charges == null || charges.data() == null) {
-            throw unreadable(operation);
-        }
-        return charges.data().stream().filter(charge -> !charge.deleted()).map(Charge::id)
-                .filter(Objects::nonNull).toList();
+        return chargeIds("listing charges", "externalReference", externalReference);
     }
 
-    /** The charge as Asaas holds it now: what a webhook event's body only claims. */
+    /** The ids of the charges a Checkout's payer made, one per installment, that are not deleted. */
+    public List<String> chargesOfCheckout(String checkoutId) {
+        return chargeIds("listing a Checkout's charges", "checkoutSession", checkoutId);
+    }
+
+    /**
+     * The charge as Asaas holds it now: what a webhook event's body only claims. A charge that is one installment of a
+     * card sale comes with its installment plan's total and count, read from Asaas too.
+     */
     public Charge charge(String chargeId) {
         String operation = "reading a charge";
-        Charge charge = call(operation, () -> asaas.get().uri("/payments/{id}", chargeId)
+        ChargeBody charge = call(operation, () -> asaas.get().uri("/payments/{id}", chargeId)
                 .retrieve()
-                .body(Charge.class));
+                .body(ChargeBody.class));
         if (charge == null || charge.id() == null || charge.status() == null || charge.value() == null) {
             throw unreadable(operation);
         }
-        return charge;
+        if (charge.installment() == null) {
+            return charge.single();
+        }
+        String planOperation = "reading an installment plan";
+        InstallmentPlan plan = call(planOperation, () -> asaas.get().uri("/installments/{id}", charge.installment())
+                .retrieve()
+                .body(InstallmentPlan.class));
+        if (plan == null || plan.value() == null || plan.installmentCount() == null) {
+            throw unreadable(planOperation);
+        }
+        return charge.inPlan(plan);
     }
 
     /** Deletes an unpaid charge, so that it can no longer be paid. Deleting is not a refund. */
@@ -121,6 +160,29 @@ public class AsaasGateway {
                 .body(Map.of())
                 .retrieve()
                 .toBodilessEntity());
+    }
+
+    /**
+     * Refunds a card sale in installments in full, every installment's charge at once: a refund of one charge would
+     * return one installment only. As for a charge, the refund is done once a re-read shows it {@code DONE}.
+     */
+    public void refundInstallmentPlan(String installmentId) {
+        call("refunding an installment plan", () -> asaas.post().uri("/installments/{id}/refund", installmentId)
+                .body(Map.of())
+                .retrieve()
+                .toBodilessEntity());
+    }
+
+    private List<String> chargeIds(String operation, String filter, String value) {
+        Charges charges = call(operation, () -> asaas.get()
+                .uri(uri -> uri.path("/payments").queryParam(filter, value).build())
+                .retrieve()
+                .body(Charges.class));
+        if (charges == null || charges.data() == null) {
+            throw unreadable(operation);
+        }
+        return charges.data().stream().filter(charge -> !charge.deleted()).map(ChargeBody::id)
+                .filter(Objects::nonNull).toList();
     }
 
     private String idOf(String operation, Supplier<Created> request) {
@@ -148,6 +210,12 @@ public class AsaasGateway {
         }
     }
 
+    /** The item's name as Asaas takes it: cut, with an ellipsis, when it is longer. */
+    private static String itemName(String name) {
+        return name.length() <= ITEM_NAME_MAX_CHARACTERS ? name
+                : name.substring(0, ITEM_NAME_MAX_CHARACTERS - 1) + "…";
+    }
+
     /** Asaas words each refusal as {@code {"errors": [{"code", "description"}]}}. */
     private static List<AsaasError> errorsOf(RestClientResponseException refusal) {
         try {
@@ -168,6 +236,20 @@ public class AsaasGateway {
     public record PixQrCode(String encodedImage, String payload) {
     }
 
+    /**
+     * A card Checkout to make: one item, its name and description, for the amount in cents of BRL, in up to the
+     * installments given, one of which is a single payment; the external reference, an Order's code; how long it
+     * lives; and where Asaas sends the payer back, when they paid or it expired, and when they cancelled.
+     */
+    public record CardCheckout(String externalReference, String item, String description, int amountCents,
+                               int maxInstallments, Duration lifetime, URI returnUrl, URI cancelUrl) {
+    }
+
+    /** A Checkout Asaas made: its id, which its charges carry as {@code checkoutSession}, and its link. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Checkout(String id, String link) {
+    }
+
     private record NewCustomer(String name, String cpfCnpj, boolean notificationDisabled) {
     }
 
@@ -175,22 +257,67 @@ public class AsaasGateway {
                              String externalReference, String description) {
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record NewCheckout(List<String> billingTypes, List<String> chargeTypes, int minutesToExpire,
+                               String externalReference, Callback callback, List<Item> items,
+                               Installment installment) {
+    }
+
+    private record Callback(String successUrl, String cancelUrl, String expiredUrl) {
+    }
+
+    private record Item(String name, String description, int quantity, BigDecimal value) {
+    }
+
+    private record Installment(int maxInstallmentCount) {
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Created(String id) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Charges(List<Charge> data) {
+    private record Charges(List<ChargeBody> data) {
+    }
+
+    /** A charge as Asaas words it; an installment of a card sale names its plan in {@code installment}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ChargeBody(String id, String status, BigDecimal value, String externalReference, boolean deleted,
+                              String checkoutSession, String installment, List<Refund> refunds,
+                              Chargeback chargeback) {
+
+        Charge single() {
+            return new Charge(id, status, value, externalReference, deleted, checkoutSession, null, 1, refunds,
+                    chargeback);
+        }
+
+        Charge inPlan(InstallmentPlan plan) {
+            return new Charge(id, status, plan.value(), externalReference, deleted, checkoutSession, installment,
+                    plan.installmentCount(), refunds, chargeback);
+        }
+    }
+
+    /** An installment plan: the whole sale's {@code value} in reais, and its {@code installmentCount}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record InstallmentPlan(BigDecimal value, Integer installmentCount) {
     }
 
     /**
-     * A charge: its {@code status}, Asaas's own ({@code PENDING}, {@code CONFIRMED}, {@code RECEIVED}, …); its
-     * {@code value} in reais; the {@code externalReference} it was made under, an Order's code; whether it was
-     * deleted; its refunds; and its chargeback, once one was opened.
+     * A charge: its {@code status}, Asaas's own ({@code PENDING}, {@code CONFIRMED}, {@code RECEIVED},
+     * {@code AWAITING_RISK_ANALYSIS}, …); the {@code value} in reais of the sale it is part of, which is its own unless
+     * it is one of a card sale's {@code installments}, then its {@code installment} plan's whole; the
+     * {@code externalReference} it was made under, an Order's code, which a Checkout's charges may lack; whether it was
+     * deleted; the {@code checkoutSession}, the Checkout its payer paid on, if any; its {@code refunds}; and its
+     * {@code chargeback}, once one was opened.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Charge(String id, String status, BigDecimal value, String externalReference, boolean deleted,
-                         List<Refund> refunds, Chargeback chargeback) {
+                         String checkoutSession, String installment, int installments, List<Refund> refunds,
+                         Chargeback chargeback) {
+
+        /** A card payment held for Asaas's manual risk analysis, which neither pays nor declines it yet. */
+        public boolean awaitingRiskAnalysis() {
+            return "AWAITING_RISK_ANALYSIS".equals(status);
+        }
 
         /**
          * Whether money went back to the payer, or is going: a refund, whoever asked for it; a chargeback; or the

@@ -1,11 +1,13 @@
 package com.devlabs.aulaflix;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.delete;
 import static com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -23,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.MappingBuilder;
@@ -35,9 +39,10 @@ import com.jayway.jsonpath.JsonPath;
  * Asaas's API, played by WireMock so that no test reaches the sandbox. By default it takes every customer and charge:
  * a customer's id is {@code cus_} and its CPF in base64, a charge's id is {@code pay_} and its external reference,
  * which is the Order's code, and every Pix QR code is {@link #QR_CODE_PNG} with a copy-and-paste code ending in the
- * charge's id. A search by external reference finds the charge made under it. Since every test shares the server, a
- * test that wants another answer asks for it by something only it uses, its Student's CPF or the customer that CPF
- * makes, and gets it once.
+ * charge's id. A search by external reference finds the charge made under it. A Checkout's id is {@code chk_} and its
+ * external reference, and a search by Checkout finds no charge until a test makes a card sale under it. Since every
+ * test shares the server, a test that wants another answer asks for it by something only it uses, its Student's CPF,
+ * the customer that CPF makes, or its Course's slug, and gets it once.
  */
 public final class Asaas {
 
@@ -54,6 +59,7 @@ public final class Asaas {
     public static final String QR_CODE_PNG =
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
 
+    private static final String CHECKOUT_LINK_PREFIX = "https://sandbox.asaas.com/checkoutSession/show?id=chk_";
     private static final String COPY_PASTE_PREFIX = "00020101021226820014br.gov.bcb.pix2560qrpix.example/";
     private static final int LOWEST_PRIORITY = 10;
     private static final String TEMPLATE = "response-template";
@@ -87,6 +93,18 @@ public final class Asaas {
                                    "externalReference": "{{request.query.externalReference}}",
                                    "status": "PENDING", "deleted": false}]}""")
                         .withTransformers(TEMPLATE)));
+        server.stubFor(get(urlPathEqualTo("/v3/payments")).withQueryParam("checkoutSession", matching(".+"))
+                .atPriority(LOWEST_PRIORITY - 1)
+                .willReturn(okJson("""
+                        {"object": "list", "hasMore": false, "totalCount": 0, "limit": 10, "offset": 0, "data": []}""")));
+        server.stubFor(post(urlPathEqualTo("/v3/checkouts")).atPriority(LOWEST_PRIORITY)
+                .willReturn(okJson("""
+                        {"id": "chk_{{jsonPath request.body '$.externalReference'}}",
+                         "link": "%s{{jsonPath request.body '$.externalReference'}}",
+                         "status": "ACTIVE", "minutesToExpire": {{jsonPath request.body '$.minutesToExpire'}},
+                         "externalReference": "{{jsonPath request.body '$.externalReference'}}"}"""
+                        .formatted(CHECKOUT_LINK_PREFIX))
+                        .withTransformers(TEMPLATE)));
         server.stubFor(delete(urlPathMatching("/v3/payments/[^/]+")).atPriority(LOWEST_PRIORITY)
                 .willReturn(okJson("""
                         {"deleted": true, "id": "{{request.pathSegments.[2]}}"}""").withTransformers(TEMPLATE)));
@@ -94,6 +112,11 @@ public final class Asaas {
                 .willReturn(okJson("""
                         {"object": "payment", "id": "{{request.pathSegments.[2]}}", "status": "REFUND_REQUESTED",
                          "deleted": false,
+                         "refunds": [{"dateCreated": "2026-10-05 14:45:03", "status": "PENDING"}]}""")
+                        .withTransformers(TEMPLATE)));
+        server.stubFor(post(urlPathMatching("/v3/installments/[^/]+/refund")).atPriority(LOWEST_PRIORITY)
+                .willReturn(okJson("""
+                        {"object": "installment", "id": "{{request.pathSegments.[2]}}", "deleted": false,
                          "refunds": [{"dateCreated": "2026-10-05 14:45:03", "status": "PENDING"}]}""")
                         .withTransformers(TEMPLATE)));
     }
@@ -120,6 +143,16 @@ public final class Asaas {
     /** The id the default answer gives the charge made under the Order's code. */
     public static String chargeOf(String orderCode) {
         return "pay_" + orderCode;
+    }
+
+    /** The id the default answer gives the Checkout made under the Order's code. */
+    public static String checkoutOf(String orderCode) {
+        return "chk_" + orderCode;
+    }
+
+    /** The link the default answer gives the Checkout made under the Order's code. */
+    public static String checkoutLinkOf(String orderCode) {
+        return CHECKOUT_LINK_PREFIX + orderCode;
     }
 
     /** The copy-and-paste code the default answer gives the charge's QR code. */
@@ -221,6 +254,108 @@ public final class Asaas {
                 .willReturn(answer));
     }
 
+    /** Answers the next creation of a Checkout for the Course, known by its slug in the return URLs, this way. */
+    public void answerNextCheckoutFor(String courseSlug, ResponseDefinitionBuilder answer) {
+        server.stubFor(once("checkout " + courseSlug, post(urlPathEqualTo("/v3/checkouts"))
+                .withRequestBody(matchingJsonPath("$.callback.successUrl", containing("/" + courseSlug + "/"))))
+                .willReturn(answer));
+    }
+
+    /** The bodies of the Checkouts created under the Order's code, in the order they were sent. */
+    public List<String> checkoutsCreatedUnder(String orderCode) {
+        return bodies(server.findAll(postRequestedFor(urlPathEqualTo("/v3/checkouts"))
+                .withRequestBody(matchingJsonPath("$.externalReference", equalTo(orderCode)))));
+    }
+
+    /** The bodies of the Checkouts created for the Course, known by its slug in the return URLs. */
+    public List<String> checkoutsCreatedFor(String courseSlug) {
+        return bodies(server.findAll(postRequestedFor(urlPathEqualTo("/v3/checkouts"))
+                .withRequestBody(matchingJsonPath("$.callback.successUrl", containing("/" + courseSlug + "/")))));
+    }
+
+    /**
+     * Makes the card sale the Student paid on the Order's Checkout, as Asaas shows it: one charge per installment,
+     * each for its share of the price, in the status, and part of one installment plan unless there is a single
+     * charge, under the Checkout and, when the reference is not null, that external reference. Searches by the
+     * Checkout find the charges. Answers their ids, the first installment's first.
+     */
+    public List<String> cardSale(String orderCode, String status, int installments, int priceCents,
+                                 String externalReference) {
+        String installment = installments == 1 ? null : installmentOf(orderCode);
+        List<String> charges = IntStream.rangeClosed(1, installments)
+                .mapToObj(number -> "pay_%s_%d".formatted(orderCode, number)).toList();
+        for (int number = 1; number <= installments; number++) {
+            int valueCents = priceCents / installments + (number == 1 ? priceCents % installments : 0);
+            answerChargeReadsWith(charges.get(number - 1), okJson(cardCharge(charges.get(number - 1), status,
+                    valueCents, checkoutOf(orderCode), installment, number, externalReference)));
+        }
+        if (installment != null) {
+            installmentIs(installment, priceCents, installments, checkoutOf(orderCode));
+        }
+        answerChargeSearchesOfCheckout(checkoutOf(orderCode), okJson("""
+                {"object": "list", "hasMore": false, "totalCount": %d, "limit": 10, "offset": 0, "data": [%s]}"""
+                .formatted(installments, charges.stream()
+                        .map(charge -> "{\"object\": \"payment\", \"id\": \"%s\", \"deleted\": false}"
+                                .formatted(charge))
+                        .collect(Collectors.joining(", ")))));
+        return charges;
+    }
+
+    /** The id {@link #cardSale} gives the installment plan of a sale in more than one installment. */
+    public static String installmentOf(String orderCode) {
+        return "ins_" + orderCode;
+    }
+
+    /** Answers every read of the installment plan as Asaas would show it: for the value in cents, in so many. */
+    public void installmentIs(String installmentId, int valueCents, int installments, String checkoutId) {
+        server.stubFor(get(urlPathEqualTo("/v3/installments/" + installmentId)).willReturn(okJson("""
+                {"object": "installment", "id": "%s", "value": %s, "paymentValue": %s, "installmentCount": %d,
+                 "billingType": "CREDIT_CARD", "checkoutSession": "%s", "deleted": false}"""
+                .formatted(installmentId, BigDecimal.valueOf(valueCents, 2),
+                        BigDecimal.valueOf(valueCents / installments, 2), installments, checkoutId))));
+    }
+
+    /** Answers every search for the charges of the Checkout this way. */
+    public void answerChargeSearchesOfCheckout(String checkoutId, ResponseDefinitionBuilder answer) {
+        server.stubFor(get(urlPathEqualTo("/v3/payments")).withQueryParam("checkoutSession", equalTo(checkoutId))
+                .willReturn(answer));
+    }
+
+    /** Answers the next search for the charges of the Checkout this way, then as before. */
+    public void answerNextChargeSearchOfCheckout(String checkoutId, ResponseDefinitionBuilder answer) {
+        server.stubFor(once("checkout search " + checkoutId, get(urlPathEqualTo("/v3/payments"))
+                .withQueryParam("checkoutSession", equalTo(checkoutId))).atPriority(1).willReturn(answer));
+    }
+
+    /** How many times the charges of the Checkout were searched for. */
+    public int searchesOfCheckout(String checkoutId) {
+        return server.findAll(getRequestedFor(urlPathEqualTo("/v3/payments"))
+                .withQueryParam("checkoutSession", equalTo(checkoutId))).size();
+    }
+
+    /** How many deletions Asaas got for charges named after the Order's code: card sales' charges included. */
+    public int deletionsUnder(String orderCode) {
+        return server.findAll(deleteRequestedFor(urlPathMatching("/v3/payments/pay_%s.*".formatted(orderCode))))
+                .size();
+    }
+
+    private static String cardCharge(String chargeId, String status, int valueCents, String checkoutId,
+                                     String installment, int installmentNumber, String externalReference) {
+        BigDecimal value = BigDecimal.valueOf(valueCents, 2);
+        return """
+                {"object": "payment", "id": "%s", "customer": "cus_000000000002", "billingType": "CREDIT_CARD",
+                 "status": "%s", "value": %s, "netValue": %s, "externalReference": %s, "deleted": false,
+                 "checkoutSession": "%s", "installment": %s, "installmentNumber": %s,
+                 "creditCard": {"creditCardNumber": "4242", "creditCardBrand": "VISA"},
+                 "dateCreated": "2026-10-05", "dueDate": "2026-10-05", "description": null}"""
+                .formatted(chargeId, status, value, value, quoted(externalReference), checkoutId,
+                        quoted(installment), installment == null ? "null" : installmentNumber);
+    }
+
+    private static String quoted(String text) {
+        return text == null ? "null" : "\"" + text + "\"";
+    }
+
     /** Answers the next refund of the charge this way, then as before. */
     public void answerNextRefundOf(String chargeId, ResponseDefinitionBuilder answer) {
         server.stubFor(once("refund " + chargeId,
@@ -235,6 +370,12 @@ public final class Asaas {
     /** The bodies of the refunds of the charge, in the order they were sent. */
     public List<String> refundRequestsOf(String chargeId) {
         return bodies(server.findAll(postRequestedFor(urlPathEqualTo("/v3/payments/%s/refund".formatted(chargeId)))));
+    }
+
+    /** How many times the installment plan was refunded, every installment at once. */
+    public int refundsOfInstallmentPlan(String installmentId) {
+        return server.findAll(postRequestedFor(urlPathEqualTo("/v3/installments/%s/refund".formatted(installmentId))))
+                .size();
     }
 
     /** How many times a charge was read by no id at all, as a read of a charge the API never got the id of would be. */
