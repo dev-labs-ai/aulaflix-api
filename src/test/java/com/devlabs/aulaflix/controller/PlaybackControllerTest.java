@@ -29,17 +29,19 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 import com.devlabs.aulaflix.AdminApi;
 import com.devlabs.aulaflix.AdminCourses;
+import com.devlabs.aulaflix.AdminEnrollments;
 import com.devlabs.aulaflix.AistorContainer;
 import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.StoredVideos;
+import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.service.AccountService;
 import com.jayway.jsonpath.JsonPath;
 
 /**
  * Playback as the BFF asks for it: the Free lesson of an On sale Course for anyone, without a session, and no other
- * Lesson without one. The guards run in order: an Admin's session, then the Lesson, then the session. The presigned
- * GET itself runs over real HTTP in {@link PlaybackIT}.
+ * Lesson without a Student's session and an active Enrollment. The guards run in order: an Admin's session, then the
+ * Lesson, then the session, then the Enrollment. The presigned GET itself runs over real HTTP in {@link PlaybackIT}.
  */
 class PlaybackControllerTest extends IntegrationTest {
 
@@ -109,6 +111,43 @@ class PlaybackControllerTest extends IntegrationTest {
                 "rotas-no-express", "five-seconds.mp4");
 
         assertUnauthenticated(playback(lesson), lesson);
+    }
+
+    @Test
+    void asksAStudentWithoutAnEnrollmentToEnrollForAnyOtherLessonButStillPlaysTheFreeLesson() {
+        long course = courses.onSale(newSlug());
+        long freeLesson = courses.freeLessonOf(course);
+        long lesson = courses.addPublishedLesson(courses.addModule(course, "Rotas e respostas"), "Rotas no Express",
+                "rotas-no-express", "five-seconds.mp4");
+        String student = new StudentApi(bff).signedUp(StudentApi.newEmail(), PASSWORD);
+
+        assertProblem(playback(lesson, student), "/v1/lessons/%d/playback".formatted(lesson), HttpStatus.CONFLICT,
+                "enrollment-required", "Enrollment required", "This needs an active Enrollment in the Course.");
+        assertThat(playback(freeLesson, student)).hasStatusOk();
+    }
+
+    /** An Enrollment opens its own Course, and no other. */
+    @Test
+    void asksAStudentEnrolledInAnotherCourseToEnrollInThisOne() {
+        long course = courses.onSale(newSlug());
+        long lesson = courses.addPublishedLesson(courses.addModule(course, "Rotas e respostas"), "Rotas no Express",
+                "rotas-no-express", "five-seconds.mp4");
+        String email = StudentApi.newEmail();
+        String student = new StudentApi(bff).signedUp(email, PASSWORD);
+        new AdminEnrollments(mvc, adminToken).granted(email, courses.onSale(newSlug()));
+
+        assertThat(playback(lesson, student)).hasStatus(HttpStatus.CONFLICT);
+    }
+
+    /** Guard 2 comes before guard 5: a Lesson nobody but the Admin may see is not found, enrolled or not. */
+    @Test
+    void answersAStudentWithoutAnEnrollmentThatAnEmBreveLessonIsNotFound() {
+        long course = courses.onSale(newSlug());
+        long emBreve = courses.addLesson(courses.addModule(course, "Rotas e respostas"), "Rotas no Express",
+                "rotas-no-express");
+        String student = new StudentApi(bff).signedUp(StudentApi.newEmail(), PASSWORD);
+
+        assertLessonNotFound(playback(emBreve, student), emBreve);
     }
 
     /** An "Em breve" Lesson does not exist for anyone but the Admin, even once its video is linked. */

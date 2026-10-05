@@ -139,6 +139,22 @@ and deletes every other object under its prefix, abandoned uploads included; the
 publishes. `GET /v1/admin/lessons/{lessonId}/playback` answers a URL that plays the linked video for 4 hours, in any
 state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes its videos too.
 
+## Granting Enrollments by hand
+
+`POST /v1/admin/enrollments` `{ "email": …, "courseId": …, "note": … }` gives a Student every published Lesson of a
+Course, for example after a chargeback won in the Asaas UI, or as a courtesy. The note, up to 500 characters, is
+required: it is the only record of why. The email must be a Student's: one with no Account, or an Admin's, gets 409
+`student-account-required`, and the person signs up first. A Draft or unknown Course gets 409
+`course-not-enrollable`, and a Student who already has an active Enrollment in the Course gets 409
+`already-enrolled`. A Coming soon Course takes Enrollments too; its Lessons play from the launch. No email is sent:
+tell the Student.
+
+`PUT /v1/admin/enrollments/{id}/status` `{ "status": "ENDED", "note": … }` ends it, and the Student loses every Lesson
+but the Free one. The ending is final: the Enrollment stays, ended, and access comes back only through a new grant.
+`GET /v1/admin/enrollments` lists every Enrollment, newest first, with who granted it and why, and how it ended: 20 to
+a page by default (`page`, from 0, and `size`, at most 100), filtered by any of `email`, `courseId` and
+`active=true|false`. `GET /v1/admin/enrollments/{id}` reads one.
+
 ## The public catalog
 
 The BFF reads the catalog with `GET /v1/courses` and `GET /v1/courses/{slug}`, without a session. A Draft answers like
@@ -159,7 +175,8 @@ curl -H "AulaFlix-BFF-Key: $(cat secrets/aulaflix.bff.key)" -H "AulaFlix-Client-
 with the read-only key on every call, valid for 4 hours (`aulaflix.storage.playback-url-lifetime`), and answered with
 `Cache-Control: no-store`. Only a published Lesson of an On sale Course plays; any other answers 404
 `lesson-not-found`, an id of any shape included. The Free lesson plays for anyone, without a session, and any other
-Lesson answers 401 without one. The session is optional, but a token that is sent must be valid, even for the Free
+Lesson answers 401 without one, and 409 `enrollment-required` to a Student without an active Enrollment in its
+Course. The session is optional, but a token that is sent must be valid, even for the Free
 lesson, and an Admin's gets a 403: the Admin previews through their own endpoint. Without a session, one IP gets 30
 plays an hour, whatever they answer (`aulaflix.rate-limits.visitor-playback.*`), on top of the 600 requests a minute
 every BFF request counts against.
