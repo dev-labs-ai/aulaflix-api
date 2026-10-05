@@ -50,6 +50,16 @@ public class TestcontainersConfiguration {
         return registry -> hibp.applicationProperties().forEach(registry::add);
     }
 
+    @Bean(destroyMethod = "stop")
+    Asaas asaas() {
+        return new Asaas();
+    }
+
+    @Bean
+    DynamicPropertyRegistrar asaasProperties(Asaas asaas) {
+        return registry -> asaas.applicationProperties().forEach(registry::add);
+    }
+
     @Bean
     MailpitContainer mailpitContainer() {
         return new MailpitContainer();

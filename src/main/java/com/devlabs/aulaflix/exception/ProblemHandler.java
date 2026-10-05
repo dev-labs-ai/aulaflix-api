@@ -285,6 +285,37 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "This needs an active Enrollment in the Course."), request);
     }
 
+    @ExceptionHandler(CourseNotForSaleException.class)
+    ResponseEntity<Object> courseNotForSale(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "course-not-for-sale", "Course not for sale",
+                "Only an On sale Course can be bought."), request);
+    }
+
+    @ExceptionHandler(OrderNotFoundException.class)
+    ResponseEntity<Object> orderNotFound(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "order-not-found", "Order not found",
+                "The Student has no Order with this code."), request);
+    }
+
+    /** The line says which call failed and how, for whoever looks into it; Asaas being away is not our fault. */
+    @ExceptionHandler(PaymentUnavailableException.class)
+    ResponseEntity<Object> paymentUnavailable(PaymentUnavailableException refusal, HttpServletRequest request) {
+        log.warn("Refused {} {}: payment-unavailable; {}", request.getMethod(), request.getRequestURI(),
+                refusal.getMessage());
+        return respond(new Refusal(HttpStatus.SERVICE_UNAVAILABLE, "payment-unavailable", "Payment unavailable",
+                "The payment provider cannot be reached now. Try again in Retry-After seconds."),
+                retryAfter(refusal.retryAfter()), Map.of());
+    }
+
+    /** At ERROR: a refusal by Asaas that a retry will not fix is a fault someone has to look into. */
+    @ExceptionHandler(PaymentProviderErrorException.class)
+    ResponseEntity<Object> paymentProviderError(PaymentProviderErrorException refusal, HttpServletRequest request) {
+        log.error("Refused {} {}: payment-provider-error; {}", request.getMethod(), request.getRequestURI(),
+                refusal.getMessage());
+        return respond(new Refusal(HttpStatus.BAD_GATEWAY, "payment-provider-error", "Payment provider error",
+                "The payment provider refused the payment. It has been logged."), new HttpHeaders(), Map.of());
+    }
+
     /**
      * Raised by the session token filter, by the chain for a request that needs a session and has none, and by a
      * service once what the request asks for turns out to need one.
