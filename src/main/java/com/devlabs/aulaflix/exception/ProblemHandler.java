@@ -279,12 +279,6 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "No Enrollment has this id."), request);
     }
 
-    @ExceptionHandler(EnrollmentEndedException.class)
-    ResponseEntity<Object> enrollmentEnded(HttpServletRequest request) {
-        return refuse(new Refusal(HttpStatus.CONFLICT, "enrollment-ended", "Enrollment ended",
-                "An ending is final: grant a new Enrollment to give access back."), request);
-    }
-
     @ExceptionHandler(PaidEnrollmentException.class)
     ResponseEntity<Object> paidEnrollment(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "paid-enrollment", "Paid Enrollment",

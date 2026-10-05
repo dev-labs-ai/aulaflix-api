@@ -294,7 +294,7 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
                 "enrollment-required", "Enrollment required", "This needs an active Enrollment in the Course.");
     }
 
-    /** The ending is final: ending again changes nothing, and nothing brings the Enrollment back. */
+    /** The ending is final: ending again changes nothing, and the only status the endpoint takes is ENDED. */
     @Test
     void keepsAnEndedEnrollmentEndedAsItWasEnded() {
         long course = courses.onSale(newSlug());
@@ -309,26 +309,11 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
         MvcTestResult reactivated = enrollments.changeStatus(Long.toString(id), "ACTIVE", "Reativar.");
 
         assertThat(endedAgain).hasStatusOk().bodyJson().isStrictlyEqualTo(ended);
-        assertProblem(reactivated, "/v1/admin/enrollments/%d/status".formatted(id), HttpStatus.CONFLICT,
-                "enrollment-ended", "Enrollment ended",
-                "An ending is final: grant a new Enrollment to give access back.");
+        assertThat(reactivated).hasStatus(HttpStatus.BAD_REQUEST).bodyJson().isLenientlyEqualTo("""
+                {"type": "https://aulaflix.com.br/problems/invalid-request",
+                 "errors": [{"field": "status", "code": "invalid-format"}]}""");
         assertThat(enrollments.get(Long.toString(id))).hasStatusOk().bodyJson().isStrictlyEqualTo(ended);
         assertThat(playback(lesson, token)).hasStatus(HttpStatus.CONFLICT);
-    }
-
-    /** Sending the state it is already in changes nothing, so a retry is harmless. */
-    @Test
-    void leavesAnActiveEnrollmentAsItIsWhenAskedToKeepItActive() {
-        long course = courses.onSale(newSlug());
-        String email = StudentApi.newEmail();
-        new StudentApi(bff).signedUp(email, PASSWORD);
-        long id = enrollments.granted(email, course);
-        String granted = body(enrollments.get(Long.toString(id)));
-
-        MvcTestResult result = enrollments.changeStatus(Long.toString(id), "ACTIVE", "Nada muda.");
-
-        assertThat(result).hasStatusOk().bodyJson().isStrictlyEqualTo(granted);
-        assertThat(enrollments.get(Long.toString(id))).bodyJson().isStrictlyEqualTo(granted);
     }
 
     @Test
@@ -397,7 +382,8 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
                 Arguments.of("blank note", "ENDED", "   ", "note", "required"),
                 Arguments.of("note of 501 characters", "ENDED", "a".repeat(501), "note", "too-long"),
                 Arguments.of("no status", null, NOTE, "status", "required"),
-                Arguments.of("unknown status", "PAUSED", NOTE, "status", "invalid-format"));
+                Arguments.of("unknown status", "PAUSED", NOTE, "status", "invalid-format"),
+                Arguments.of("status other than ENDED", "ACTIVE", NOTE, "status", "invalid-format"));
     }
 
     @Test

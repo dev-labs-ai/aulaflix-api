@@ -122,15 +122,15 @@ public class AdminEnrollmentController {
     @Operation(summary = "End a manual Enrollment", description = """
             Ends an Enrollment granted by hand, with a note saying why; the Student loses every Lesson but the Free \
             one. The ending is final: the Enrollment stays in the list, ended, and access comes back only through a \
-            new grant. Sending the state it is already in changes nothing, so a retry is harmless.""")
+            new grant. `ENDED` is the only status taken; ending an ended Enrollment changes nothing, so a retry is \
+            harmless.""")
     @ApiResponse(responseCode = "200", description = "The Enrollment as it now is",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = AdminEnrollment.class)))
     @ApiResponse(responseCode = "400", description = "`invalid-request`, with a code for each field in `errors`")
     @ApiResponse(responseCode = "404", description = "`enrollment-not-found`")
     @ApiResponse(responseCode = "409", description = """
-            `enrollment-ended`: an ended Enrollment never becomes active; or `paid-enrollment`: an Order granted it, \
-            and it ends only with a Refund of that Order""")
+            `paid-enrollment`: an Order granted it, and it ends only with a Refund of that Order""")
     public AdminEnrollment changeStatus(@AuthenticationPrincipal AuthenticatedAccount admin,
                                         @PathVariable String enrollmentId,
                                         @Valid @RequestBody EnrollmentStatusChange change) {

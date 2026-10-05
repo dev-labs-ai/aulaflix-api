@@ -168,6 +168,8 @@ tell the Student.
 
 `PUT /v1/admin/enrollments/{id}/status` `{ "status": "ENDED", "note": … }` ends it, and the Student loses every Lesson
 but the Free one. The ending is final: the Enrollment stays, ended, and access comes back only through a new grant.
+`ENDED` is the only status taken (anything else is 400 `invalid-request`, `invalid-format` on `status`), and ending an
+ended Enrollment answers it unchanged.
 `GET /v1/admin/enrollments` lists every Enrollment, newest first, with who granted it and why, and how it ended: 20 to
 a page by default (`page`, from 0, and `size`, at most 100), filtered by any of `email`, `courseId` and
 `active=true|false`. `GET /v1/admin/enrollments/{id}` reads one.

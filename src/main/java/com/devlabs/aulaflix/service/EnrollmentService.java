@@ -32,7 +32,6 @@ import com.devlabs.aulaflix.dto.ManualEnrollmentRequest;
 import com.devlabs.aulaflix.dto.PageResponse;
 import com.devlabs.aulaflix.exception.AlreadyEnrolledException;
 import com.devlabs.aulaflix.exception.CourseNotEnrollableException;
-import com.devlabs.aulaflix.exception.EnrollmentEndedException;
 import com.devlabs.aulaflix.exception.EnrollmentNotFoundException;
 import com.devlabs.aulaflix.exception.FieldViolation;
 import com.devlabs.aulaflix.exception.InvalidRequestException;
@@ -154,23 +153,22 @@ public class EnrollmentService {
     }
 
     /**
-     * Ends a manual Enrollment by hand, with a note. The ending is final, and sending the state the Enrollment is already
-     * in changes nothing, so a retried ending is harmless and keeps the first one's note. One an Order granted ends only
-     * with its Order, through a Refund or a Reversal, and is refused whatever its state. The Enrollment's lock makes two
-     * endings go one at a time.
+     * Ends a manual Enrollment by hand, with a note: {@code ENDED} is the only status taken. The ending is final, and
+     * ending an ended Enrollment changes nothing, so a retried ending is harmless and keeps the first one's note. One an
+     * Order granted ends only with its Order, through a Refund or a Reversal, and is refused whatever its state. The
+     * Enrollment's lock makes two endings go one at a time.
      */
     @Transactional
     public AdminEnrollment changeStatus(long adminId, String enrollmentId, EnrollmentStatusChange change) {
+        if (change.status() != EnrollmentStatus.ENDED) {
+            throw new InvalidRequestException(List.of(new FieldViolation("status", "invalid-format")));
+        }
         EnrollmentEntity enrollment = PathIds.parse(enrollmentId).flatMap(repository::findLockedById)
                 .orElseThrow(EnrollmentNotFoundException::new);
         if (enrollment.getOrigin() == EnrollmentOrigin.ORDER) {
             throw new PaidEnrollmentException();
         }
-        EnrollmentStatus current = statusOf(enrollment);
-        if (change.status().compareTo(current) < 0) {
-            throw new EnrollmentEndedException();
-        }
-        if (change.status() == current) {
+        if (!enrollment.isActive()) {
             return adminView(enrollment);
         }
         enrollment.endManually(now(), accounts.findById(adminId).orElseThrow(), change.note().strip());

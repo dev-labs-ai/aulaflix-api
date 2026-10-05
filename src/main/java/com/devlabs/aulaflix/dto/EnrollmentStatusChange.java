@@ -8,10 +8,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.devlabs.aulaflix.domain.EnrollmentStatus;
 
-/** Ends a manual Enrollment, with a note; sending the state it is already in changes nothing. */
+/** Ends a manual Enrollment, with a note; ending an ended one changes nothing. */
 public record EnrollmentStatusChange(
         @NotNull(message = "required")
-        @Schema(example = "ENDED")
+        @Schema(description = "Only `ENDED`; any other status is `invalid-format`.", example = "ENDED")
         EnrollmentStatus status,
 
         @NotBlank(message = "required")
