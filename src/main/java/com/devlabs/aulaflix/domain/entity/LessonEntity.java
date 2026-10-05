@@ -37,6 +37,12 @@ public class LessonEntity {
     @Column(nullable = false, length = 80)
     private String slug;
 
+    @Column(name = "video_object_key", length = 100)
+    private String videoObjectKey;
+
+    @Column(name = "duration_seconds")
+    private Integer durationSeconds;
+
     protected LessonEntity() {
     }
 
@@ -87,5 +93,21 @@ public class LessonEntity {
 
     public void setSlug(String slug) {
         this.slug = slug;
+    }
+
+    /** The object key of the Lesson's video, or null while it has none. */
+    public String getVideoObjectKey() {
+        return videoObjectKey;
+    }
+
+    /** Read from the video's file, or null while the Lesson has no video. */
+    public Integer getDurationSeconds() {
+        return durationSeconds;
+    }
+
+    /** Makes the object the Lesson's video, in place of any other, with the duration read from its file. */
+    public void linkVideo(String videoObjectKey, int durationSeconds) {
+        this.videoObjectKey = videoObjectKey;
+        this.durationSeconds = durationSeconds;
     }
 }

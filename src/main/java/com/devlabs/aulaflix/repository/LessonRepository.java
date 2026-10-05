@@ -18,6 +18,9 @@ public interface LessonRepository extends JpaRepository<LessonEntity, Long> {
     /** In order within each Module. */
     List<LessonEntity> findByCourseIdOrderByPosition(long courseId);
 
+    @Query("select l.id from LessonEntity l where l.course.id = :courseId")
+    List<Long> findIdsByCourseId(@Param("courseId") long courseId);
+
     /** The id of the Lesson's Course, read without loading the Lesson. */
     @Query("select l.course.id from LessonEntity l where l.id = :id")
     Optional<Long> findCourseIdById(@Param("id") long id);

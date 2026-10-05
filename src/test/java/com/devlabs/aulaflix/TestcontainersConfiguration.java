@@ -5,6 +5,7 @@ import java.time.Instant;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
@@ -20,6 +21,21 @@ public class TestcontainersConfiguration {
     @ServiceConnection
     PostgreSQLContainer postgres() {
         return new PostgreSQLContainer(POSTGRES_IMAGE);
+    }
+
+    @Bean
+    AistorContainer storage() {
+        return new AistorContainer();
+    }
+
+    @Bean
+    DynamicPropertyRegistrar storageProperties(AistorContainer storage) {
+        return registry -> storage.applicationProperties().forEach(registry::add);
+    }
+
+    @Bean
+    StoredVideos storedVideos(AistorContainer storage) {
+        return new StoredVideos(storage);
     }
 
     @Bean

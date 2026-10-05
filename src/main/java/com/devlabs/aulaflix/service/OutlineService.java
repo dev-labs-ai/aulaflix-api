@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,13 +43,15 @@ public class OutlineService {
     private final ModuleRepository modules;
     private final LessonRepository lessons;
     private final CatalogLocks locks;
+    private final ApplicationEventPublisher events;
 
     public OutlineService(CourseRepository courses, ModuleRepository modules, LessonRepository lessons,
-                          CatalogLocks locks) {
+                          CatalogLocks locks, ApplicationEventPublisher events) {
         this.courses = courses;
         this.modules = modules;
         this.lessons = lessons;
         this.locks = locks;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -128,10 +131,12 @@ public class OutlineService {
         return lessonView(lesson);
     }
 
+    /** Its videos go once the deletion commits. */
     @Transactional
     public void deleteLesson(long adminId, String lessonId) {
         LessonEntity lesson = locks.lesson(lessonId);
         lessons.delete(lesson);
+        events.publishEvent(new LessonsDeleted(List.of(lesson.getId())));
         log.info("Admin {} deleted Lesson {}", adminId, lesson.getId());
     }
 
@@ -182,7 +187,8 @@ public class OutlineService {
         return new AdminModule(module.getId(), module.getCourse().getId(), module.getTitle());
     }
 
-    private static AdminLesson lessonView(LessonEntity lesson) {
-        return new AdminLesson(lesson.getId(), lesson.getModule().getId(), lesson.getTitle(), lesson.getSlug());
+    static AdminLesson lessonView(LessonEntity lesson) {
+        return new AdminLesson(lesson.getId(), lesson.getModule().getId(), lesson.getTitle(), lesson.getSlug(),
+                lesson.getDurationSeconds());
     }
 }

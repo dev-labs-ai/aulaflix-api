@@ -21,6 +21,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.devlabs.aulaflix.AdminApi;
+import com.devlabs.aulaflix.AistorContainer;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.StoredAccounts;
 import com.devlabs.aulaflix.StoredAccounts.StoredAccount;
@@ -38,6 +39,9 @@ class AdminCommandTest extends IntegrationTest {
     private PostgreSQLContainer postgres;
 
     @Autowired
+    private AistorContainer storage;
+
+    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
@@ -48,7 +52,7 @@ class AdminCommandTest extends IntegrationTest {
         String email = uniqueEmail();
         ScriptedTerminal terminal = new ScriptedTerminal(PASSWORD, PASSWORD);
 
-        int exitCode = AdminRun.against(postgres)
+        int exitCode = AdminRun.against(postgres, storage)
                 .run(terminal, "admin", "create", "--email", " " + email.toUpperCase(), "--name", "Ana  Souza");
 
         assertThat(exitCode).isZero();
@@ -65,7 +69,8 @@ class AdminCommandTest extends IntegrationTest {
         String email = uniqueEmail();
         ScriptedTerminal terminal = new ScriptedTerminal(PASSWORD, PASSWORD + " ");
 
-        int exitCode = AdminRun.against(postgres).run(terminal, "admin", "create", "--email", email, "--name", "Ana");
+        int exitCode = AdminRun.against(postgres, storage)
+                .run(terminal, "admin", "create", "--email", email, "--name", "Ana");
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(terminal.output()).isEqualTo("The passwords do not match. Nothing was created.");
@@ -78,7 +83,8 @@ class AdminCommandTest extends IntegrationTest {
         long accountsBefore = countAccounts();
         ScriptedTerminal terminal = new ScriptedTerminal(password, password);
 
-        int exitCode = AdminRun.against(postgres).run(terminal, "admin", "create", "--email", email, "--name", name);
+        int exitCode = AdminRun.against(postgres, storage)
+                .run(terminal, "admin", "create", "--email", email, "--name", name);
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(terminal.output()).isEqualTo(explanation + "\nNothing was created.");
@@ -106,7 +112,7 @@ class AdminCommandTest extends IntegrationTest {
         accounts.createAdmin(email, "Ana", PASSWORD);
         ScriptedTerminal terminal = new ScriptedTerminal(PASSWORD, PASSWORD);
 
-        int exitCode = AdminRun.against(postgres)
+        int exitCode = AdminRun.against(postgres, storage)
                 .run(terminal, "admin", "create", "--email", email.toUpperCase(), "--name", "Bia");
 
         assertThat(exitCode).isEqualTo(1);
@@ -142,7 +148,7 @@ class AdminCommandTest extends IntegrationTest {
                 postgres.getHost(), postgres.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT), database);
         ScriptedTerminal terminal = new ScriptedTerminal(PASSWORD, PASSWORD);
 
-        int exitCode = new AdminRun(url, postgres.getUsername(), postgres.getPassword())
+        int exitCode = new AdminRun(url, postgres.getUsername(), postgres.getPassword(), storage)
                 .run(terminal, "admin", "create", "--email", uniqueEmail(), "--name", "Ana");
 
         assertThat(exitCode).isEqualTo(1);
@@ -162,7 +168,7 @@ class AdminCommandTest extends IntegrationTest {
         String email = uniqueEmail();
         ScriptedTerminal terminal = new ScriptedTerminal(PASSWORD, PASSWORD);
 
-        int exitCode = AdminRun.against(postgres)
+        int exitCode = AdminRun.against(postgres, storage)
                 .with("spring.flyway.locations", "classpath:db/migration,classpath:db/pending-migration")
                 .run(terminal, "admin", "create", "--email", email, "--name", "Ana");
 
@@ -176,7 +182,7 @@ class AdminCommandTest extends IntegrationTest {
 
     @Test
     void startsNoWebServerAndNoScheduledTask() {
-        AdminRun run = AdminRun.against(postgres);
+        AdminRun run = AdminRun.against(postgres, storage);
 
         int exitCode = run.run(new ScriptedTerminal(PASSWORD, PASSWORD),
                 "admin", "create", "--email", uniqueEmail(), "--name", "Ana");
@@ -193,7 +199,7 @@ class AdminCommandTest extends IntegrationTest {
         long accountsBefore = countAccounts();
         ScriptedTerminal terminal = new ScriptedTerminal();
 
-        int exitCode = AdminRun.against(postgres).run(terminal, args.toArray(String[]::new));
+        int exitCode = AdminRun.against(postgres, storage).run(terminal, args.toArray(String[]::new));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(terminal.output()).isEqualTo(USAGE);
@@ -230,7 +236,7 @@ class AdminCommandTest extends IntegrationTest {
         String otherAdminsSession = api.sessionToken(otherEmail, PASSWORD);
         ScriptedTerminal terminal = new ScriptedTerminal(NEW_PASSWORD, NEW_PASSWORD);
 
-        int exitCode = AdminRun.against(postgres)
+        int exitCode = AdminRun.against(postgres, storage)
                 .run(terminal, "admin", "password", "--email", " " + email.toUpperCase());
 
         assertThat(exitCode).isZero();
@@ -253,7 +259,7 @@ class AdminCommandTest extends IntegrationTest {
         for (String email : List.of(uniqueEmail(), student)) {
             ScriptedTerminal terminal = new ScriptedTerminal(NEW_PASSWORD, NEW_PASSWORD);
 
-            int exitCode = AdminRun.against(postgres).run(terminal, "admin", "password", "--email", email);
+            int exitCode = AdminRun.against(postgres, storage).run(terminal, "admin", "password", "--email", email);
 
             assertThat(exitCode).isEqualTo(1);
             assertThat(terminal.output()).isEqualTo("No Admin Account has this email. Nothing was changed.");
@@ -268,7 +274,7 @@ class AdminCommandTest extends IntegrationTest {
         String session = new AdminApi(mvc).sessionToken(email, PASSWORD);
         ScriptedTerminal terminal = new ScriptedTerminal(NEW_PASSWORD, NEW_PASSWORD + " ");
 
-        int exitCode = AdminRun.against(postgres).run(terminal, "admin", "password", "--email", email);
+        int exitCode = AdminRun.against(postgres, storage).run(terminal, "admin", "password", "--email", email);
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(terminal.output()).isEqualTo("The passwords do not match. Nothing was changed.");
@@ -284,7 +290,7 @@ class AdminCommandTest extends IntegrationTest {
         String session = new AdminApi(mvc).sessionToken(email, PASSWORD);
         ScriptedTerminal terminal = new ScriptedTerminal(newPassword, newPassword);
 
-        int exitCode = AdminRun.against(postgres).run(terminal, "admin", "password", "--email", email);
+        int exitCode = AdminRun.against(postgres, storage).run(terminal, "admin", "password", "--email", email);
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(terminal.output()).isEqualTo(explanation + "\nNothing was changed.");

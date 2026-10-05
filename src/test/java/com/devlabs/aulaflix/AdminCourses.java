@@ -35,7 +35,7 @@ public final class AdminCourses {
                 .content("{\"slug\": \"%s\", \"title\": \"Backend com Node.js\"}".formatted(slug))
                 .exchange();
         assertThat(created).hasStatus(HttpStatus.CREATED);
-        return ((Number) JsonPath.read(body(created), "$.id")).longValue();
+        return idOf(created);
     }
 
     /** A Draft whose document is {@link #fullDocument}. */
@@ -60,12 +60,31 @@ public final class AdminCourses {
         return id;
     }
 
-    public void addModule(long courseId, String title) {
-        assertThat(mvc.post().uri("/v1/admin/courses/" + courseId + "/modules")
+    /** The new Module's id. */
+    public long addModule(long courseId, String title) {
+        MvcTestResult created = mvc.post().uri("/v1/admin/courses/" + courseId + "/modules")
                 .header(HttpHeaders.AUTHORIZATION, bearer)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"title\": \"%s\"}".formatted(title)))
-                .hasStatus(HttpStatus.CREATED);
+                .content("{\"title\": \"%s\"}".formatted(title))
+                .exchange();
+        assertThat(created).hasStatus(HttpStatus.CREATED);
+        return idOf(created);
+    }
+
+    /** The new Lesson's id. */
+    public long addLesson(long moduleId, String title, String slug) {
+        MvcTestResult created = mvc.post().uri("/v1/admin/modules/" + moduleId + "/lessons")
+                .header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\": \"%s\", \"slug\": \"%s\"}".formatted(title, slug))
+                .exchange();
+        assertThat(created).hasStatus(HttpStatus.CREATED);
+        return idOf(created);
+    }
+
+    /** A Lesson in a Module of a new Draft. */
+    public long lessonOfANewDraft() {
+        return addLesson(addModule(draft(newSlug()), "Fundamentos"), "O que é uma API", "o-que-e-uma-api");
     }
 
     public void delete(long courseId) {
@@ -92,6 +111,10 @@ public final class AdminCourses {
                   "pixDiscountPercent": 10,
                   "maxInstallments": 10
                 }""".formatted(slug);
+    }
+
+    private static long idOf(MvcTestResult created) {
+        return ((Number) JsonPath.read(body(created), "$.id")).longValue();
     }
 
     public static String newSlug() {

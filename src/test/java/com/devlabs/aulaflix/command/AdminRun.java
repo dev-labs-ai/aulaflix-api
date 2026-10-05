@@ -16,6 +16,8 @@ import org.springframework.scheduling.config.ScheduledTask;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import com.devlabs.aulaflix.AistorContainer;
+
 /**
  * Runs the jar's admin mode as {@code main} does, pointed at a test database, and notes what the started
  * application contained.
@@ -27,14 +29,16 @@ final class AdminRun {
     private boolean webServer;
     private List<ScheduledTask> scheduledTasks = List.of();
 
-    AdminRun(String url, String username, String password) {
+    /** The storage only has to be configured: the API refuses to start without it, in admin mode too. */
+    AdminRun(String url, String username, String password, AistorContainer storage) {
         properties.put("spring.datasource.url", url);
         properties.put("spring.datasource.username", username);
         properties.put("spring.datasource.password", password);
+        storage.applicationProperties().forEach((name, value) -> properties.put(name, value.get()));
     }
 
-    static AdminRun against(PostgreSQLContainer postgres) {
-        return new AdminRun(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+    static AdminRun against(PostgreSQLContainer postgres, AistorContainer storage) {
+        return new AdminRun(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), storage);
     }
 
     /** Sets one more property in the admin run's environment, above every other source. */

@@ -12,13 +12,27 @@ Secrets are files in `./secrets/` (git-ignored), each named after the property i
 mkdir -p secrets
 openssl rand -base64 24 > secrets/spring.datasource.password
 openssl rand -base64 32 > secrets/aulaflix.bff.key   # the web's server sends the same key
+# The storage: its root, and the API's two keys, which storage-init creates. Hex, since a key ID goes into URLs.
+openssl rand -hex 10 > secrets/storage.root-user
+openssl rand -hex 24 > secrets/storage.root-password
+for key in read-only read-write; do
+    openssl rand -hex 10 > secrets/aulaflix.storage.$key.access-key-id
+    openssl rand -hex 20 > secrets/aulaflix.storage.$key.secret-access-key
+done
+# …and AIStor Free's license, downloaded from your MinIO account, as secrets/minio.license
 
-docker compose up -d     # PostgreSQL on 127.0.0.1:5432
+docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
 The API applies its Flyway migrations when it starts. It refuses to start without a BFF key of at least 32
-characters.
+characters, or without the storage's two keys.
+
+AIStor Free answers every S3 request with a denial until it has its license, which the same file serves locally, in
+the tests and in production. On every `up`, `storage-init` creates the private `videos` bucket and the API's two
+users: a read-only one, which signs playback, and a read-write one, which signs uploads and serves the API's own reads
+and deletes. Running it again changes nothing. Only `storage` and `storage-init` hold the root credentials, and the
+console is not published.
 
 ## Creating an Admin
 
@@ -68,6 +82,29 @@ Lesson's slug is unique within its Course. `PUT /v1/admin/modules/{moduleId}` re
 and `PUT` it back to reorder the Modules and move Lessons between them in one change. It must name exactly the
 Course's current Modules and Lessons, each once, or nothing changes.
 
+## Uploading a Lesson's video
+
+A Lesson's video is one faststart H.264/AAC MP4, encoded before the upload ([ADR
+0007](docs/adr/0007-lesson-videos-are-progressive-mp4-encoded-before-upload.md)), and its bytes never pass through
+the API:
+
+```shell
+ffmpeg -i raw.mov -c:v libx264 -c:a aac -movflags +faststart aula.mp4
+
+# 1. An upload URL, valid for an hour, for a new key under the Lesson's prefix
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/v1/admin/lessons/21/video-uploads
+# 2. The upload, straight to the storage, with the required headers: one PUT, which the edge caps at 5 GiB
+curl --upload-file aula.mp4 -H 'Content-Type: video/mp4' "$uploadUrl"
+# 3. The link, which reads the duration from the file's header
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d '{"objectKey": "lessons/21/…mp4"}' http://localhost:8080/v1/admin/lessons/21/video
+```
+
+Linking a new upload replaces the Lesson's video and deletes every other object under its prefix, abandoned uploads
+included; there is no unlink. Linking never publishes. `GET /v1/admin/lessons/{lessonId}/playback` answers a URL that
+plays the linked video for 4 hours, in any state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes
+its videos too.
+
 ## The public catalog
 
 The BFF reads the catalog with `GET /v1/courses` and `GET /v1/courses/{slug}`, without a session. A Draft answers like
@@ -82,7 +119,9 @@ curl -H "AulaFlix-BFF-Key: $(cat secrets/aulaflix.bff.key)" -H "AulaFlix-Client-
 
 ## Tests
 
-`./mvnw test` needs Docker: PostgreSQL runs in Testcontainers. Mutation testing runs with
+`./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from
+`secrets/minio.license`, which CI writes there from a secret. `./mvnw verify` also runs the `*IT` tests, which make the
+signed uploads and playback requests over real HTTP. Mutation testing runs with
 `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`, and its report lands in `target/pit-reports/`. It
 mutates the `command`, `config`, `exception` and `service` packages. To check one slice, name the classes it changed:
 

@@ -21,9 +21,65 @@ services:
       timeout: 3s
       retries: 10
 
+  # AIStor Free, the storage of Lesson videos (ADR 0003). Only the S3 API is published; the console is not.
+  storage:
+    image: quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z
+    command: ["server", "/data", "--license", "/run/secrets/minio.license"]
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/storage.root-user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/storage.root-password
+    secrets:
+      - minio.license
+      - storage.root-user
+      - storage.root-password
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot, on every up: the private videos bucket and the API's two users. Running it again changes nothing.
+  storage-init:
+    image: quay.io/minio/aistor/mc:RELEASE.2026-09-19T15-24-59Z
+    entrypoint: ["sh", "/storage/init.sh"]
+    environment:
+      STORAGE_URL: http://storage:9000
+    secrets:
+      - storage.root-user
+      - storage.root-password
+      - aulaflix.storage.read-only.access-key-id
+      - aulaflix.storage.read-only.secret-access-key
+      - aulaflix.storage.read-write.access-key-id
+      - aulaflix.storage.read-write.secret-access-key
+    volumes:
+      - ./storage:/storage:ro
+    depends_on:
+      storage:
+        condition: service_healthy
+    restart: "no"
+
 secrets:
   spring.datasource.password:
     file: ./secrets/spring.datasource.password
+  minio.license:
+    file: ./secrets/minio.license
+  storage.root-user:
+    file: ./secrets/storage.root-user
+  storage.root-password:
+    file: ./secrets/storage.root-password
+  aulaflix.storage.read-only.access-key-id:
+    file: ./secrets/aulaflix.storage.read-only.access-key-id
+  aulaflix.storage.read-only.secret-access-key:
+    file: ./secrets/aulaflix.storage.read-only.secret-access-key
+  aulaflix.storage.read-write.access-key-id:
+    file: ./secrets/aulaflix.storage.read-write.access-key-id
+  aulaflix.storage.read-write.secret-access-key:
+    file: ./secrets/aulaflix.storage.read-write.secret-access-key
 
 volumes:
   postgres-data:
+  storage-data:

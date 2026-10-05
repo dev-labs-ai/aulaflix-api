@@ -151,6 +151,19 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "Another Lesson of this Course already has this slug."), request);
     }
 
+    @ExceptionHandler(VideoNotFoundException.class)
+    ResponseEntity<Object> videoNotFound(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "video-not-found", "Video not found",
+                "No video was uploaded under this key for this Lesson: request an upload URL, upload, then link."),
+                request);
+    }
+
+    @ExceptionHandler(VideoNotLinkedException.class)
+    ResponseEntity<Object> videoNotLinked(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "video-not-linked", "Video not linked",
+                "The Lesson has no video yet."), request);
+    }
+
     @ExceptionHandler(PriceNotDivisibleByInstallmentsException.class)
     ResponseEntity<Object> priceNotDivisibleByInstallments(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "price-not-divisible-by-installments",

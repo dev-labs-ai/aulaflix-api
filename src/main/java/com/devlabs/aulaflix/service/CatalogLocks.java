@@ -43,8 +43,12 @@ class CatalogLocks {
     }
 
     LessonEntity lesson(String lessonId) {
-        return PathIds.parse(lessonId).flatMap(id -> underCourseLock(id, lessons::findCourseIdById, lessons::findById))
-                .orElseThrow(LessonNotFoundException::new);
+        return PathIds.parse(lessonId).flatMap(this::findLesson).orElseThrow(LessonNotFoundException::new);
+    }
+
+    /** The Lesson under its Course's lock, or nothing once it is gone. */
+    Optional<LessonEntity> findLesson(long lessonId) {
+        return underCourseLock(lessonId, lessons::findCourseIdById, lessons::findById);
     }
 
     /**

@@ -230,6 +230,62 @@ class OpenApiDocumentTest extends IntegrationTest {
     }
 
     @Test
+    void documentsEveryStatusEachVideoEndpointCanAnswer() {
+        assertResponses("/v1/admin/lessons/{lessonId}/video-uploads", "post", "200", "401", "403", "404", "500");
+        assertResponses("/v1/admin/lessons/{lessonId}/video", "put", "200", "400", "401", "403", "404", "409", "500");
+        assertResponses("/v1/admin/lessons/{lessonId}/playback", "get", "200", "401", "403", "404", "500");
+    }
+
+    @Test
+    void documentsTheVideoEndpointsAsAdminOnly() {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/admin/lessons/{lessonId}/video-uploads": {
+                      "post": {
+                        "tags": ["Admin videos"],
+                        "security": [{"bearer": []}],
+                        "responses": {
+                          "200": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VideoUpload"}}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/admin/lessons/{lessonId}/video": {
+                      "put": {
+                        "tags": ["Admin videos"],
+                        "security": [{"bearer": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/VideoLinkRequest"}}
+                          }
+                        },
+                        "responses": {
+                          "200": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminLesson"}}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/admin/lessons/{lessonId}/playback": {
+                      "get": {
+                        "tags": ["Admin videos"],
+                        "security": [{"bearer": []}],
+                        "responses": {
+                          "200": {
+                            "content": {
+                              "application/json": {"schema": {"$ref": "#/components/schemas/VideoPlayback"}}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""");
+    }
+
+    @Test
     void documentsEveryStatusTheStatusEndpointCanAnswer() {
         assertResponses("/v1/admin/courses/{courseId}/status", "put",
                 "200", "400", "401", "403", "404", "409", "500");

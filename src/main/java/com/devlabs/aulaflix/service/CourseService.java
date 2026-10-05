@@ -6,6 +6,7 @@ import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ import com.devlabs.aulaflix.exception.PriceNotDivisibleByInstallmentsException;
 import com.devlabs.aulaflix.exception.SlugFrozenException;
 import com.devlabs.aulaflix.exception.SlugTakenException;
 import com.devlabs.aulaflix.repository.CourseRepository;
+import com.devlabs.aulaflix.repository.LessonRepository;
 
 /**
  * The catalog's Courses as Admins author them. Every change holds the Course's row lock, so that an edit, a move and a
@@ -39,12 +41,17 @@ public class CourseService {
     private static final Logger log = LoggerFactory.getLogger(CourseService.class);
 
     private final CourseRepository repository;
+    private final LessonRepository lessons;
     private final CatalogLocks locks;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
-    public CourseService(CourseRepository repository, CatalogLocks locks, Clock clock) {
+    public CourseService(CourseRepository repository, LessonRepository lessons, CatalogLocks locks,
+                         ApplicationEventPublisher events, Clock clock) {
         this.repository = repository;
+        this.lessons = lessons;
         this.locks = locks;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -106,14 +113,16 @@ public class CourseService {
         return adminView(course);
     }
 
-    /** Only a Draft, which no one but Admins has ever seen. */
+    /** Only a Draft, which no one but Admins has ever seen; its Lessons' videos go once the deletion commits. */
     @Transactional
     public void delete(long adminId, String courseId) {
         CourseEntity course = locks.course(courseId);
         if (course.getStatus() != CourseStatus.DRAFT) {
             throw new CourseNotDraftException();
         }
+        List<Long> lessonIds = lessons.findIdsByCourseId(course.getId());
         repository.delete(course);
+        events.publishEvent(new LessonsDeleted(lessonIds));
         log.info("Admin {} deleted Course {}", adminId, course.getId());
     }
 
