@@ -36,10 +36,16 @@ import org.springframework.http.HttpHeaders;
         description = "A session's token, such as the one POST /v1/admin/sessions returns.")
 @SecurityScheme(name = OpenApiConfiguration.BFF_KEY, type = SecuritySchemeType.APIKEY, in = SecuritySchemeIn.HEADER,
         paramName = BffRequestFilter.KEY_HEADER, description = "The secret the BFF shares with the API.")
+@SecurityScheme(name = OpenApiConfiguration.WEBHOOK_TOKEN, type = SecuritySchemeType.APIKEY,
+        in = SecuritySchemeIn.HEADER, paramName = WebhookTokenFilter.TOKEN_HEADER,
+        description = "The token registered with the webhook in Asaas, which Asaas sends with every delivery.")
 public class OpenApiConfiguration {
 
     public static final String BEARER = "bearer";
     public static final String BFF_KEY = "bffKey";
+    public static final String WEBHOOK_TOKEN = "webhookToken";
+
+    private static final String WEBHOOKS = "/v1/webhooks/**";
 
     @Bean
     GroupedOpenApi adminApi() {
@@ -50,14 +56,24 @@ public class OpenApiConfiguration {
                 .build();
     }
 
-    /** What the BFF calls: everything under {@code /v1} but the Admin's endpoints. */
+    /** What the BFF calls: everything under {@code /v1} but the Admin's endpoints and Asaas's webhook. */
     @Bean
     GroupedOpenApi bffApi() {
         return GroupedOpenApi.builder()
                 .group("bff")
                 .pathsToMatch("/v1/**")
-                .pathsToExclude("/v1/admin/**")
+                .pathsToExclude("/v1/admin/**", WEBHOOKS)
                 .addOpenApiCustomizer(bffRails())
+                .addOpenApiCustomizer(sharedRefusals())
+                .build();
+    }
+
+    /** What Asaas calls, with its token rather than the BFF's key. */
+    @Bean
+    GroupedOpenApi webhooksApi() {
+        return GroupedOpenApi.builder()
+                .group("webhooks")
+                .pathsToMatch(WEBHOOKS)
                 .addOpenApiCustomizer(sharedRefusals())
                 .build();
     }

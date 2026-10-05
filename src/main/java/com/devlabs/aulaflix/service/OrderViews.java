@@ -30,6 +30,6 @@ final class OrderViews {
         CourseEntity course = order.getCourse();
         return new Order(order.getCode(), order.getStatus(), order.getMethod(),
                 new OrderedCourse(course.getId(), course.getSlug(), course.getTitle()), order.getAmountCents(),
-                order.getCreatedAt(), order.isDuplicatePayment(), pix);
+                order.getCreatedAt(), order.getPaidAt(), order.isDuplicatePayment(), pix);
     }
 }

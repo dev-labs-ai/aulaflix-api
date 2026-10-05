@@ -33,6 +33,16 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     @Query("select o from OrderEntity o join fetch o.course where o.code = :code and o.student.id = :studentId")
     Optional<OrderEntity> findOfStudentByCode(@Param("studentId") long studentId, @Param("code") String code);
 
+    /** The Student who placed the Order that Asaas charges under this id. */
+    @Query("select o.student.id from OrderEntity o where o.asaasPaymentId = :chargeId")
+    Optional<Long> findStudentIdByChargeId(@Param("chargeId") String chargeId);
+
+    /** The Order that Asaas charges under this id, with its Student and its Course. */
+    @Query("""
+            select o from OrderEntity o join fetch o.student join fetch o.course
+            where o.asaasPaymentId = :chargeId""")
+    Optional<OrderEntity> findWithPartiesByChargeId(@Param("chargeId") String chargeId);
+
     /** The Order with its Course. */
     @Query("select o from OrderEntity o join fetch o.course where o.id = :id")
     Optional<OrderEntity> findWithCourseById(@Param("id") long id);

@@ -1,6 +1,7 @@
 package com.devlabs.aulaflix.service;
 
 import java.net.URI;
+import java.util.Locale;
 import java.util.Map;
 
 import com.devlabs.aulaflix.domain.entity.EmailTemplate;
@@ -10,6 +11,8 @@ import com.devlabs.aulaflix.domain.entity.EmailTemplate;
  * API, and carry their secret in the fragment, which the browser keeps out of every request line.
  */
 public class EmailTemplates {
+
+    private static final Locale BRAZIL = Locale.of("pt", "BR");
 
     private final String webBase;
 
@@ -31,5 +34,29 @@ public class EmailTemplates {
 
                 Equipe AulaFlix
                 """.formatted(name, webBase, token), Map.of());
+    }
+
+    /** The Student's record that the Order was paid, and the way into its Course, which is open from now on. */
+    public OutboundEmail purchaseConfirmation(String recipient, String name, String orderCode, int amountCents,
+                                              String courseTitle, String courseSlug) {
+        return new OutboundEmail(EmailTemplate.PURCHASE_CONFIRMATION, recipient,
+                "Compra confirmada: " + courseTitle, """
+                Olá, %s!
+
+                Recebemos o pagamento do pedido %s, de %s, e o curso %s já está liberado para você.
+
+                Para começar a assistir, abra:
+
+                %s/aprender/%s
+
+                Guarde este email como comprovante da sua compra.
+
+                Equipe AulaFlix
+                """.formatted(name, orderCode, reais(amountCents), courseTitle, webBase, courseSlug), Map.of());
+    }
+
+    /** As Brazil writes money: {@code R$ 1.497,30}. */
+    private static String reais(int cents) {
+        return "R$ %s,%02d".formatted(String.format(BRAZIL, "%,d", cents / 100), cents % 100);
     }
 }

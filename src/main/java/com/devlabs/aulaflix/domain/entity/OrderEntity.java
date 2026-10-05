@@ -77,6 +77,9 @@ public class OrderEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "paid_at")
+    private Instant paidAt;
+
     protected OrderEntity() {
     }
 
@@ -109,6 +112,24 @@ public class OrderEntity {
         if (status == OrderStatus.AWAITING_PAYMENT) {
             status = OrderStatus.CANCELLED;
         }
+    }
+
+    /**
+     * Paid at the moment given, if it awaited payment, and answers whether it was; an Order already paid keeps the
+     * moment it was paid first.
+     */
+    public boolean pay(Instant at) {
+        if (status != OrderStatus.AWAITING_PAYMENT) {
+            return false;
+        }
+        status = OrderStatus.PAID;
+        paidAt = at;
+        return true;
+    }
+
+    /** Paid while its Student already had the Course: it grants nothing, and an Admin refunds it. */
+    public void markDuplicatePayment() {
+        duplicatePayment = true;
     }
 
     public Long getId() {
@@ -169,5 +190,9 @@ public class OrderEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getPaidAt() {
+        return paidAt;
     }
 }

@@ -279,6 +279,12 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "An ending is final: grant a new Enrollment to give access back."), request);
     }
 
+    @ExceptionHandler(PaidEnrollmentException.class)
+    ResponseEntity<Object> paidEnrollment(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "paid-enrollment", "Paid Enrollment",
+                "An Enrollment granted by an Order ends only with a Refund of that Order."), request);
+    }
+
     @ExceptionHandler(EnrollmentRequiredException.class)
     ResponseEntity<Object> enrollmentRequired(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "enrollment-required", "Enrollment required",
@@ -333,6 +339,18 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<Object> invalidBffKey(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.FORBIDDEN, "invalid-bff-key", "Invalid BFF key",
                 "Only the AulaFlix web server calls this API, with its AulaFlix-BFF-Key."), request);
+    }
+
+    @ExceptionHandler(InvalidWebhookTokenException.class)
+    ResponseEntity<Object> invalidWebhookToken(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.FORBIDDEN, "invalid-webhook-token", "Invalid webhook token",
+                "Only Asaas posts here, with its asaas-access-token."), request);
+    }
+
+    @ExceptionHandler(WebhookBodyTooLargeException.class)
+    ResponseEntity<Object> webhookBodyTooLarge(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONTENT_TOO_LARGE, "content-too-large", "Content too large",
+                "A webhook's body is at most 256 KB."), request);
     }
 
     @ExceptionHandler(InvalidClientIpException.class)

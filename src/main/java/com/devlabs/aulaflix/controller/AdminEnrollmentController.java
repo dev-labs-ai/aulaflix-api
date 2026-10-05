@@ -128,7 +128,9 @@ public class AdminEnrollmentController {
                     schema = @Schema(implementation = AdminEnrollment.class)))
     @ApiResponse(responseCode = "400", description = "`invalid-request`, with a code for each field in `errors`")
     @ApiResponse(responseCode = "404", description = "`enrollment-not-found`")
-    @ApiResponse(responseCode = "409", description = "`enrollment-ended`: an ended Enrollment never becomes active")
+    @ApiResponse(responseCode = "409", description = """
+            `enrollment-ended`: an ended Enrollment never becomes active; or `paid-enrollment`: an Order granted it, \
+            and it ends only with a Refund of that Order""")
     public AdminEnrollment changeStatus(@AuthenticationPrincipal AuthenticatedAccount admin,
                                         @PathVariable String enrollmentId,
                                         @Valid @RequestBody EnrollmentStatusChange change) {

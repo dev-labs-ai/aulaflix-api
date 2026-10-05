@@ -8,6 +8,7 @@ import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 
 import com.devlabs.aulaflix.service.EmailOutbox;
+import com.devlabs.aulaflix.service.WebhookWorker;
 
 /**
  * Every job the API runs on its own, each with a fixed delay, so that a run never overlaps the one before. None runs
@@ -22,14 +23,20 @@ public class ScheduledJobs implements SchedulingConfigurer {
 
     private final EmailOutbox outbox;
     private final OutboxProperties outboxProperties;
+    private final WebhookWorker webhookWorker;
+    private final AsaasProperties asaasProperties;
 
-    public ScheduledJobs(EmailOutbox outbox, OutboxProperties outboxProperties) {
+    public ScheduledJobs(EmailOutbox outbox, OutboxProperties outboxProperties, WebhookWorker webhookWorker,
+                         AsaasProperties asaasProperties) {
         this.outbox = outbox;
         this.outboxProperties = outboxProperties;
+        this.webhookWorker = webhookWorker;
+        this.asaasProperties = asaasProperties;
     }
 
     @Override
     public void configureTasks(ScheduledTaskRegistrar jobs) {
         jobs.addFixedDelayTask(outbox::drain, outboxProperties.drainInterval());
+        jobs.addFixedDelayTask(webhookWorker::processPending, asaasProperties.webhookInterval());
     }
 }

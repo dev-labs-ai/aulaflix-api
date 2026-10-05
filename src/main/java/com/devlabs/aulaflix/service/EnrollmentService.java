@@ -12,13 +12,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.devlabs.aulaflix.domain.CourseStatus;
+import com.devlabs.aulaflix.domain.EnrollmentOrigin;
 import com.devlabs.aulaflix.domain.EnrollmentStatus;
 import com.devlabs.aulaflix.domain.entity.AccountEntity;
 import com.devlabs.aulaflix.domain.entity.CourseEntity;
 import com.devlabs.aulaflix.domain.entity.EnrollmentEntity;
+import com.devlabs.aulaflix.domain.entity.OrderEntity;
 import com.devlabs.aulaflix.domain.entity.Role;
 import com.devlabs.aulaflix.dto.AccountSummary;
 import com.devlabs.aulaflix.dto.AdminEnrollment;
@@ -32,6 +35,7 @@ import com.devlabs.aulaflix.exception.EnrollmentEndedException;
 import com.devlabs.aulaflix.exception.EnrollmentNotFoundException;
 import com.devlabs.aulaflix.exception.FieldViolation;
 import com.devlabs.aulaflix.exception.InvalidRequestException;
+import com.devlabs.aulaflix.exception.PaidEnrollmentException;
 import com.devlabs.aulaflix.exception.StudentAccountRequiredException;
 import com.devlabs.aulaflix.repository.AccountRepository;
 import com.devlabs.aulaflix.repository.CourseRepository;
@@ -100,6 +104,17 @@ public class EnrollmentService {
     }
 
     /**
+     * Grants the Enrollment that the paid Order buys, within the caller's transaction, which holds the Student's lock.
+     * The caller has made sure the Student has no active Enrollment in the Course.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void grantForOrder(OrderEntity order) {
+        EnrollmentEntity enrollment = start(EnrollmentEntity.grantedByOrder(order, now()));
+        log.info("Order {} granted Enrollment {} to Student {} in Course {}", order.getCode(), enrollment.getId(),
+                order.getStudent().getId(), order.getCourse().getId());
+    }
+
+    /**
      * Newest first. Each filter is optional: the Student's email, matched trimmed and lower-cased; the Course's id, of
      * any shape, which matches nothing unless some Course could have it; and whether the Enrollment is active,
      * {@code true} or {@code false}. Only the page and its size are taken from the request: the order is fixed.
@@ -126,8 +141,8 @@ public class EnrollmentService {
 
     /**
      * Ends a manual Enrollment by hand, with a note. The ending is final, and sending the state the Enrollment is already
-     * in changes nothing, so a retried ending is harmless and keeps the first one's note. The Enrollment's lock makes
-     * two endings go one at a time.
+     * in changes nothing, so a retried ending is harmless and keeps the first one's note. One an Order granted ends only
+     * with its Order, through a Refund or a Reversal. The Enrollment's lock makes two endings go one at a time.
      */
     @Transactional
     public AdminEnrollment changeStatus(long adminId, String enrollmentId, EnrollmentStatusChange change) {
@@ -139,6 +154,9 @@ public class EnrollmentService {
         }
         if (change.status() == current) {
             return adminView(enrollment);
+        }
+        if (enrollment.getOrigin() == EnrollmentOrigin.ORDER) {
+            throw new PaidEnrollmentException();
         }
         enrollment.endManually(now(), accounts.findById(adminId).orElseThrow(), change.note().strip());
         log.info("Admin {} ended Enrollment {}", adminId, enrollment.getId());
@@ -184,6 +202,7 @@ public class EnrollmentService {
                 new CourseSummary(course.getId(), course.getSlug(), course.getTitle(), course.getStatus()),
                 enrollment.getStartedAt(),
                 enrollment.getOrigin(),
+                enrollment.getOrder() == null ? null : enrollment.getOrder().getCode(),
                 summaryOf(enrollment.getGrantedBy()),
                 enrollment.getGrantNote(),
                 enrollment.getEndedAt(),

@@ -44,8 +44,9 @@ import com.devlabs.aulaflix.service.SessionService;
  * against the client IP's checkout limit; while looking up an email, signing up and signing in need none, and count
  * against the client IP's strictest limits; so does posting a confirmation link, which any device may do. Playback
  * needs no session, and refuses only an
- * Admin's, here and again in its {@code @PreAuthorize}. The refusals the filters make go through the same
- * {@code @RestControllerAdvice} as every other refusal.
+ * Admin's, here and again in its {@code @PreAuthorize}. Asaas's webhook needs neither the key nor a session, but
+ * Asaas's token. The refusals the filters make go through the same {@code @RestControllerAdvice} as every other
+ * refusal.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -71,9 +72,11 @@ public class SecurityConfiguration {
 
     private static final String ORDERS = "/v1/account/orders";
 
+    private static final String WEBHOOK = "/v1/webhooks/asaas";
+
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
-                                       RateLimiter limiter, RateLimitProperties limits,
+                                       AsaasProperties asaas, RateLimiter limiter, RateLimitProperties limits,
                                        @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         ProblemResponses problems = new ProblemResponses(resolver);
         return http
@@ -86,6 +89,8 @@ public class SecurityConfiguration {
                 .addFilterBefore(new SessionTokenFilter(sessions, problems), AnonymousAuthenticationFilter.class)
                 .addFilterBefore(new BffRequestFilter(bffRequests(), bff.key(), limiter, limits.bffRequestLimit(),
                         resolver), SessionTokenFilter.class)
+                .addFilterBefore(new WebhookTokenFilter(PathPatternRequestMatcher.pathPattern(WEBHOOK),
+                        asaas.webhookToken(), resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(visitorPlayback(), limiter, limits.visitorPlaybackLimit(),
                         resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(LOOK_UPS, SIGN_INS), limiter,
@@ -104,6 +109,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
                         .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")
                         .requestMatchers(DOCUMENTATION).permitAll()
+                        .requestMatchers(WEBHOOK).permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
@@ -112,11 +118,14 @@ public class SecurityConfiguration {
                 .build();
     }
 
-    /** Every request but the Admin's, which reaches the API only through the SSH tunnel. */
+    /**
+     * Every request but the Admin's, which reaches the API only through the SSH tunnel, and Asaas's webhook, which the
+     * edge lets in from Asaas alone.
+     */
     private static RequestMatcher bffRequests() {
-        Stream<String> adminPaths = Stream.concat(Stream.of(ADMIN), Arrays.stream(DOCUMENTATION));
+        Stream<String> otherPaths = Stream.concat(Stream.of(ADMIN, WEBHOOK), Arrays.stream(DOCUMENTATION));
         return new NegatedRequestMatcher(new OrRequestMatcher(
-                adminPaths.<RequestMatcher>map(PathPatternRequestMatcher::pathPattern).toList()));
+                otherPaths.<RequestMatcher>map(PathPatternRequestMatcher::pathPattern).toList()));
     }
 
     /**

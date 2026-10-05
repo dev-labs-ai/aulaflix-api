@@ -21,13 +21,15 @@ for key in read-only read-write; do
 done
 # …and AIStor Free's license, downloaded from your MinIO account, as secrets/minio.license
 # …and an API key of your Asaas sandbox account (Integrações > Chaves de API), as secrets/aulaflix.asaas.api-key
+# The token Asaas sends with each webhook delivery: 32 to 255 characters, registered with the sandbox's webhook
+openssl rand -hex 32 > secrets/aulaflix.asaas.webhook-token
 
 docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000, Mailpit (below)
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
 The API applies its Flyway migrations when it starts. It refuses to start without a BFF key of at least 32
-characters, without the storage's two keys, or without the Asaas key.
+characters, without the storage's two keys, or without the Asaas key and webhook token.
 
 AIStor Free answers every S3 request with a denial until it has its license, which the same file serves locally, in
 the tests and in production. On every `up`, `storage-init` creates the private `videos` bucket and the API's two
@@ -48,7 +50,7 @@ The secret files, and the services that mount them:
 | `aulaflix.storage.read-write.access-key-id`, `aulaflix.storage.read-write.secret-access-key` | storage-init, api |
 | `storage.root-user`, `storage.root-password` | storage, storage-init |
 | `minio.license` | storage |
-| `aulaflix.asaas.api-key` | api |
+| `aulaflix.asaas.api-key`, `aulaflix.asaas.webhook-token` | api |
 
 Compose mounts each file as it is on the host, with its owner and mode, and the API's image runs as the unprivileged
 user 10001, so a file the `api` service mounts must be readable by that user: `chmod 644 secrets/*` locally, which is
@@ -270,6 +272,30 @@ Student, 30 per IP and 500 for everyone, whatever they answer (`aulaflix.rate-li
 
 The API calls `aulaflix.asaas.base-url`, Asaas's sandbox locally and its production API in the `production` profile,
 with the key in Asaas's `access_token` header. In the tests WireMock plays Asaas.
+
+### Payments, through Asaas's webhook
+
+Only a charge Asaas confirms opens access. Asaas posts its events to `POST /v1/webhooks/asaas`, the only endpoint the
+edge lets in from the internet, from Asaas's IPs alone; it takes neither the BFF's key nor a client IP, and the BFF's
+limits don't count it. Asaas sends the token registered with the webhook in `asaas-access-token`, which the API
+compares in constant time with the secret file `aulaflix.asaas.webhook-token`: a wrong or missing token gets 403
+`invalid-webhook-token`, and nothing is stored. Anything with the right token is stored in `webhook_events` as it
+arrived, by Asaas's event id, and answered 200 with an empty body at once: a repeated id stores nothing, an event the
+API does not handle is stored as `IGNORED`, and a body that is no event is stored as `UNPROCESSABLE`, with a `WARN`. A
+body over 256 KB gets 413 `content-too-large`.
+
+The webhook worker runs `aulaflix.asaas.webhook-interval` after the end of its run before (5 s), never in admin mode.
+For each pending `PAYMENT_CONFIRMED` or `PAYMENT_RECEIVED`, it re-reads the charge from Asaas with the API's key and
+acts on that answer, never on the event's body. The charge must be the Order's, under its code as the external
+reference and for its amount, or the event is `UNPROCESSABLE`, with a `WARN`; a charge that is not `CONFIRMED` or
+`RECEIVED` grants nothing. A paid charge makes the Order `PAID`, with `paidAt`, and grants one Enrollment whose origin
+is the Order, however many events arrive, and queues the purchase confirmation email. A Student who already has the
+Course keeps the Enrollment they had: the Order is `PAID` with `duplicatePayment: true` and grants nothing. While
+Asaas cannot be reached the events wait for the next run; a re-read Asaas refuses is logged at ERROR, and the event is
+`UNPROCESSABLE`.
+
+`GET /v1/admin/enrollments` shows an Enrollment an Order granted with `origin: ORDER` and its `orderCode`. It ends only
+with its Order: ending it by hand gets 409 `paid-enrollment`.
 
 ## The API's image and the `full` profile
 

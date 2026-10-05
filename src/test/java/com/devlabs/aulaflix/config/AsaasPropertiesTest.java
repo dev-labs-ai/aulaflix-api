@@ -13,17 +13,19 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
- * Asaas's sandbox, timeout and Retry-After have local defaults; its API key is a secret with none. Each test sets the
- * key itself, so a secret file a developer keeps in {@code secrets/} changes nothing here.
+ * Asaas's sandbox, timeout, Retry-After and the webhook worker's interval have local defaults; its API key and the
+ * webhook's token are secrets with none. Each test sets both itself, so secret files a developer keeps in
+ * {@code secrets/} change nothing here.
  */
 class AsaasPropertiesTest {
 
     private static final String API_KEY = "$aact_hmlg_key-of-the-test";
+    private static final String WEBHOOK_TOKEN = "webhook-token-of-the-test-0123456";
 
     private final ApplicationContextRunner application = new ApplicationContextRunner()
             .withInitializer(new ConfigDataApplicationContextInitializer())
             .withUserConfiguration(AsaasRequired.class)
-            .withPropertyValues("aulaflix.asaas.api-key=" + API_KEY);
+            .withPropertyValues("aulaflix.asaas.api-key=" + API_KEY, "aulaflix.asaas.webhook-token=" + WEBHOOK_TOKEN);
 
     @Test
     void callsTheSandboxWaitingTenSecondsAndAsksForARetryAfterThirtyByDefault() {
@@ -37,18 +39,43 @@ class AsaasPropertiesTest {
         });
     }
 
+    @Test
+    void takesTheWebhookTokenAndRunsTheWorkerEveryFiveSecondsByDefault() {
+        application.run(context -> {
+            AsaasProperties asaas = context.getBean(AsaasProperties.class);
+            assertThat(asaas.webhookToken()).isEqualTo(WEBHOOK_TOKEN);
+            assertThat(asaas.webhookInterval()).isEqualTo(Duration.ofSeconds(5));
+        });
+    }
+
+    /** Asaas takes a token of 32 to 255 characters. */
+    @ParameterizedTest
+    @ValueSource(ints = {32, 255})
+    void takesAWebhookTokenAsLongAsAsaasTakes(int length) {
+        application.withPropertyValues("aulaflix.asaas.webhook-token=" + "t".repeat(length))
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"aulaflix.asaas.api-key=", "aulaflix.asaas.api-key= ", "aulaflix.asaas.base-url=",
-            "aulaflix.asaas.timeout=0s", "aulaflix.asaas.retry-after=999ms"})
+            "aulaflix.asaas.timeout=0s", "aulaflix.asaas.retry-after=999ms", "aulaflix.asaas.webhook-token=",
+            "aulaflix.asaas.webhook-token=                                ",
+            "aulaflix.asaas.webhook-token=0123456789012345678901234567890", "aulaflix.asaas.webhook-interval=0s"})
     void refusesToStartWithoutAnyOfItsSettings(String setting) {
         application.withPropertyValues(setting).run(context -> assertThat(context).hasFailed());
     }
 
     @Test
-    void neverShowsTheKeyWhenPrinted() {
+    void refusesAWebhookTokenLongerThanAsaasTakes() {
+        application.withPropertyValues("aulaflix.asaas.webhook-token=" + "t".repeat(256))
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void neverShowsTheKeyNorTheTokenWhenPrinted() {
         application.run(context -> assertThat(context.getBean(AsaasProperties.class).toString())
-                .contains("api-sandbox.asaas.com")
-                .doesNotContain(API_KEY));
+                .contains("api-sandbox.asaas.com", "PT5S")
+                .doesNotContain(API_KEY, WEBHOOK_TOKEN));
     }
 
     @EnableConfigurationProperties(AsaasProperties.class)

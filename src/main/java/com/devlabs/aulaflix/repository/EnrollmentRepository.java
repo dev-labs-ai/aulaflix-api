@@ -40,6 +40,7 @@ public interface EnrollmentRepository extends JpaRepository<EnrollmentEntity, Lo
     @Query("""
             select e from EnrollmentEntity e
             join fetch e.student join fetch e.course left join fetch e.grantedBy left join fetch e.endedBy
+            left join fetch e.order
             where e.id = :id""")
     Optional<EnrollmentEntity> findWithPartiesById(@Param("id") long id);
 
@@ -50,6 +51,7 @@ public interface EnrollmentRepository extends JpaRepository<EnrollmentEntity, Lo
     @Query(value = """
             select e from EnrollmentEntity e
             join fetch e.student s join fetch e.course c left join fetch e.grantedBy left join fetch e.endedBy
+            left join fetch e.order
             where (:email is null or s.email = :email)
               and (:courseId is null or c.id = :courseId)
               and (:active is null or (:active = true and e.endedAt is null)

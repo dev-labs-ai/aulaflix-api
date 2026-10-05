@@ -775,7 +775,7 @@ class OpenApiDocumentTest extends IntegrationTest {
                 }""");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.Order.properties").asMap()
-                .containsOnlyKeys("code", "status", "method", "course", "amountCents", "createdAt",
+                .containsOnlyKeys("code", "status", "method", "course", "amountCents", "createdAt", "paidAt",
                         "duplicatePayment", "pix");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.OrderRequest.properties").asMap()
@@ -843,10 +843,39 @@ class OpenApiDocumentTest extends IntegrationTest {
     }
 
     @Test
-    void servesSwaggerUiListingTheAdminAndBffGroups() {
+    void servesSwaggerUiListingTheAdminBffAndWebhookGroups() {
         assertThat(mvc.get().uri("/swagger-ui/index.html")).hasStatusOk()
                 .hasContentTypeCompatibleWith(MediaType.TEXT_HTML);
         assertThat(mvc.get().uri("/v3/api-docs/swagger-config")).hasStatus(HttpStatus.OK)
-                .bodyJson().extractingPath("$.urls[*].name").asArray().contains("admin", "bff");
+                .bodyJson().extractingPath("$.urls[*].name").asArray().contains("admin", "bff", "webhooks");
+    }
+
+    /** Asaas calls it with its token, never with the BFF's key and the browser's IP. */
+    @Test
+    void servesTheWebhookInAGroupOfItsOwnWithAsaassToken() {
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).hasStatusOk().bodyJson()
+                .extractingPath("$.paths").asMap().containsOnlyKeys("/v1/webhooks/asaas");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "components": {
+                    "securitySchemes": {
+                      "webhookToken": {"type": "apiKey", "in": "header", "name": "asaas-access-token"}
+                    }
+                  },
+                  "paths": {
+                    "/v1/webhooks/asaas": {
+                      "post": {"tags": ["Webhooks"], "security": [{"webhookToken": []}]}
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson()
+                .doesNotHavePath("$.paths['/v1/webhooks/asaas'].post.parameters");
+        assertResponsesIn("webhooks", "/v1/webhooks/asaas", "post", "200", "401", "403", "413", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson()
+                .extractingPath("$.paths['/v1/webhooks/asaas'].post.responses['403'].description").asString()
+                .contains("`invalid-webhook-token`");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson()
+                .extractingPath("$.paths['/v1/webhooks/asaas'].post.responses['413'].content").asMap()
+                .containsOnlyKeys("application/problem+json");
     }
 }

@@ -86,6 +86,18 @@ public class AsaasGateway {
                 .filter(Objects::nonNull).toList();
     }
 
+    /** The charge as Asaas holds it now: what a webhook event's body only claims. */
+    public Charge charge(String chargeId) {
+        String operation = "reading a charge";
+        Charge charge = call(operation, () -> asaas.get().uri("/payments/{id}", chargeId)
+                .retrieve()
+                .body(Charge.class));
+        if (charge == null || charge.id() == null || charge.status() == null || charge.value() == null) {
+            throw unreadable(operation);
+        }
+        return charge;
+    }
+
     /** Deletes an unpaid charge, so that it can no longer be paid. Deleting is not a refund. */
     public void deleteCharge(String chargeId) {
         call("deleting a charge", () -> asaas.delete().uri("/payments/{id}", chargeId).retrieve().toBodilessEntity());
@@ -151,8 +163,13 @@ public class AsaasGateway {
     private record Charges(List<Charge> data) {
     }
 
+    /**
+     * A charge: its {@code status}, Asaas's own ({@code PENDING}, {@code CONFIRMED}, {@code RECEIVED}, …); its
+     * {@code value} in reais; the {@code externalReference} it was made under, an Order's code; and whether it was
+     * deleted.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Charge(String id, boolean deleted) {
+    public record Charge(String id, String status, BigDecimal value, String externalReference, boolean deleted) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

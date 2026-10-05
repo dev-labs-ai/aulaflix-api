@@ -33,8 +33,8 @@ final class AdminRun {
 
     /**
      * The storage only has to be configured: the API refuses to start without it, in admin mode too. HIBP is the
-     * tests' own, since a new password is checked against it. Asaas's key only has to be there: admin mode never calls
-     * Asaas.
+     * tests' own, since a new password is checked against it. Asaas's key and webhook token only have to be there:
+     * admin mode never calls Asaas, nor receives its webhook.
      */
     AdminRun(String url, String username, String password, AistorContainer storage, Hibp hibp) {
         properties.put("spring.datasource.url", url);
@@ -43,6 +43,7 @@ final class AdminRun {
         storage.applicationProperties().forEach((name, value) -> properties.put(name, value.get()));
         hibp.applicationProperties().forEach((name, value) -> properties.put(name, value.get()));
         properties.put("aulaflix.asaas.api-key", Asaas.API_KEY);
+        properties.put("aulaflix.asaas.webhook-token", Asaas.WEBHOOK_TOKEN);
     }
 
     static AdminRun against(PostgreSQLContainer postgres, AistorContainer storage, Hibp hibp) {

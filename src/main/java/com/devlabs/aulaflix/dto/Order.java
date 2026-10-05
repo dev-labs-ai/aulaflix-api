@@ -27,6 +27,9 @@ public record Order(
 
         Instant createdAt,
 
+        @Schema(description = "When it was paid; left out until then")
+        Instant paidAt,
+
         @Schema(description = "Paid while the Student already had the Course; an Admin refunds it")
         boolean duplicatePayment,
 
