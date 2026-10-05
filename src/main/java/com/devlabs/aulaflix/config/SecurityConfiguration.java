@@ -39,7 +39,9 @@ import com.devlabs.aulaflix.service.SessionService;
 
 /**
  * Deny by default. Every request but the Admin's comes from the BFF and carries its key; every Admin endpoint needs an
- * Admin session, here and again in its own {@code @PreAuthorize}. Playback needs no session, and refuses only an
+ * Admin session, here and again in its own {@code @PreAuthorize}. The Student's own Account and session need a
+ * Student's session, here and again in their {@code @PreAuthorize}, while looking up an email, signing up and signing
+ * in need none, and count against the client IP's strictest limits. Playback needs no session, and refuses only an
  * Admin's, here and again in its {@code @PreAuthorize}. The refusals the filters make go through the same
  * {@code @RestControllerAdvice} as every other refusal.
  */
@@ -56,6 +58,12 @@ public class SecurityConfiguration {
     private static final String ADMIN = "/v1/admin/**";
 
     private static final String PLAYBACK = "/v1/lessons/*/playback";
+
+    private static final String LOOK_UPS = "/v1/account-lookups";
+
+    private static final String SIGN_UPS = "/v1/accounts";
+
+    private static final String SIGN_INS = "/v1/sessions";
 
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
@@ -74,9 +82,15 @@ public class SecurityConfiguration {
                         resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(visitorPlayback(), limiter, limits.visitorPlaybackLimit(),
                         resolver), SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(postsTo(LOOK_UPS, SIGN_INS), limiter,
+                        limits.lookUpAndSignInLimit(), resolver), SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(postsTo(SIGN_UPS), limiter, limits.signUpLimit(), resolver),
+                        SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS).permitAll()
+                        .requestMatchers("/v1/account", "/v1/sessions/current").hasRole("STUDENT")
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
                         .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")
                         .requestMatchers(DOCUMENTATION).permitAll()
@@ -106,6 +120,12 @@ public class SecurityConfiguration {
             return authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedAccount);
         };
         return new AndRequestMatcher(PathPatternRequestMatcher.pathPattern(HttpMethod.GET, PLAYBACK), withoutASession);
+    }
+
+    private static RequestMatcher postsTo(String... paths) {
+        return new OrRequestMatcher(Arrays.stream(paths)
+                .<RequestMatcher>map(path -> PathPatternRequestMatcher.pathPattern(HttpMethod.POST, path))
+                .toList());
     }
 
     /** Hands the 401s and 403s of the filters to the {@code @RestControllerAdvice}, like any other refusal. */

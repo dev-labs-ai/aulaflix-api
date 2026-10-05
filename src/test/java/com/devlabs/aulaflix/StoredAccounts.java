@@ -8,9 +8,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 /**
- * Reads the {@code accounts} table directly. No endpoint shows an Account yet, so the stored row is the only place a
- * test can observe what the admin command and the account service wrote. It also inserts Students, whom no endpoint
- * creates yet, so tests can show that the Admin flows refuse them.
+ * Reads the {@code accounts} table directly. No endpoint shows an Admin's Account, so the stored row is the only place a
+ * test can observe what the admin command and the account service wrote. It also inserts Students without the HTTP
+ * contract, so the admin command's tests need no BFF to show that the Admin flows refuse them.
  */
 public final class StoredAccounts {
 
@@ -36,7 +36,7 @@ public final class StoredAccounts {
                 email).stream().findFirst();
     }
 
-    /** A Student Account with a bcrypt hash made by an encoder of its own, as sign-up will store it. */
+    /** A Student Account with a bcrypt hash made by an encoder of its own, as sign-up stores it. */
     public long insertStudent(String email, String password) {
         long id = jdbc.queryForObject("select nextval('seq_account')", Long.class);
         jdbc.update("""

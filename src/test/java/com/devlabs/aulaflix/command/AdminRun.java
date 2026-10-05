@@ -17,6 +17,7 @@ import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.devlabs.aulaflix.AistorContainer;
+import com.devlabs.aulaflix.Hibp;
 
 /**
  * Runs the jar's admin mode as {@code main} does, pointed at a test database, and notes what the started
@@ -29,16 +30,20 @@ final class AdminRun {
     private boolean webServer;
     private List<ScheduledTask> scheduledTasks = List.of();
 
-    /** The storage only has to be configured: the API refuses to start without it, in admin mode too. */
-    AdminRun(String url, String username, String password, AistorContainer storage) {
+    /**
+     * The storage only has to be configured: the API refuses to start without it, in admin mode too. HIBP is the
+     * tests' own, since a new password is checked against it.
+     */
+    AdminRun(String url, String username, String password, AistorContainer storage, Hibp hibp) {
         properties.put("spring.datasource.url", url);
         properties.put("spring.datasource.username", username);
         properties.put("spring.datasource.password", password);
         storage.applicationProperties().forEach((name, value) -> properties.put(name, value.get()));
+        hibp.applicationProperties().forEach((name, value) -> properties.put(name, value.get()));
     }
 
-    static AdminRun against(PostgreSQLContainer postgres, AistorContainer storage) {
-        return new AdminRun(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), storage);
+    static AdminRun against(PostgreSQLContainer postgres, AistorContainer storage, Hibp hibp) {
+        return new AdminRun(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), storage, hibp);
     }
 
     /** Sets one more property in the admin run's environment, above every other source. */

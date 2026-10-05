@@ -45,7 +45,23 @@ public final class BffApi {
     }
 
     public MockMvcRequestBuilder get(String uri) {
-        return mvc.get().uri(uri)
+        return fromTheBff(mvc.get().uri(uri));
+    }
+
+    public MockMvcRequestBuilder post(String uri) {
+        return fromTheBff(mvc.post().uri(uri));
+    }
+
+    public MockMvcRequestBuilder put(String uri) {
+        return fromTheBff(mvc.put().uri(uri));
+    }
+
+    public MockMvcRequestBuilder delete(String uri) {
+        return fromTheBff(mvc.delete().uri(uri));
+    }
+
+    private MockMvcRequestBuilder fromTheBff(MockMvcRequestBuilder request) {
+        return request
                 .header("AulaFlix-BFF-Key", KEY)
                 .header("AulaFlix-Client-IP", clientIp);
     }

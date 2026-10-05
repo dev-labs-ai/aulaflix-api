@@ -24,7 +24,13 @@ public record RateLimitProperties(
         Limit bffRequests,
         @NotNull
         @Valid
-        Limit visitorPlayback) {
+        Limit visitorPlayback,
+        @NotNull
+        @Valid
+        Limit lookUpsAndSignIns,
+        @NotNull
+        @Valid
+        Limit signUps) {
 
     /** Every BFF request, whatever it asks for, per client IP. */
     RateLimit bffRequestLimit() {
@@ -34,6 +40,16 @@ public record RateLimitProperties(
     /** Every playback without a session, whatever it answers, per client IP. */
     RateLimit visitorPlaybackLimit() {
         return visitorPlayback.named("visitor-playback");
+    }
+
+    /** Every email look-up and sign-in, counted together, whatever they answer, per client IP. */
+    RateLimit lookUpAndSignInLimit() {
+        return lookUpsAndSignIns.named("look-ups-and-sign-ins");
+    }
+
+    /** Every sign-up, whatever it answers, per client IP. */
+    RateLimit signUpLimit() {
+        return signUps.named("sign-ups");
     }
 
     /** At most {@code requests} per {@code window}, a window being at least a second. */

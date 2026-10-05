@@ -132,6 +132,13 @@
             <version>1.5.1</version>
             <scope>test</scope>
         </dependency>
+        <!-- Stands in for HIBP's range API, so that no test reaches the internet; the 4.x line is still in beta -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.13.2</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.jetbrains</groupId>
             <artifactId>jetCheck</artifactId>

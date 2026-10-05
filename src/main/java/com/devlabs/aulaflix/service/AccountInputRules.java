@@ -50,6 +50,14 @@ final class AccountInputRules {
                 .toList();
     }
 
+    static List<FieldViolation> nameViolations(String name) {
+        return nameViolation(name).stream().toList();
+    }
+
+    static List<FieldViolation> emailViolations(String email) {
+        return emailViolation(email).stream().toList();
+    }
+
     static List<FieldViolation> newPasswordViolations(String password) {
         return newPasswordViolation(password).stream().toList();
     }

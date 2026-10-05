@@ -76,6 +76,12 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "The email or the password is wrong."), request);
     }
 
+    @ExceptionHandler(EmailTakenException.class)
+    ResponseEntity<Object> emailTaken(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "email-taken", "Email taken",
+                "An Account with this email already exists: sign in with its password."), request);
+    }
+
     @ExceptionHandler(SignInBlockedException.class)
     ResponseEntity<Object> signInBlocked(SignInBlockedException refusal, HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.TOO_MANY_REQUESTS, "sign-in-blocked", "Sign-in blocked",

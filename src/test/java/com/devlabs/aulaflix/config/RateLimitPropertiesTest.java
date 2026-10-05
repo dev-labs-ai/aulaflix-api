@@ -35,6 +35,20 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void allowsEachClientIp60LookUpsAndSignInsTogetherAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::lookUpAndSignInLimit)
+                .isEqualTo(new RateLimit("look-ups-and-sign-ins", 60, Duration.ofHours(1))));
+    }
+
+    @Test
+    void allowsEachClientIp10SignUpsADayByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::signUpLimit)
+                .isEqualTo(new RateLimit("sign-ups", 10, Duration.ofDays(1))));
+    }
+
+    @Test
     void takesLowerLimitsFromConfiguration() {
         application.withPropertyValues("aulaflix.rate-limits.bff-requests.requests=5",
                         "aulaflix.rate-limits.bff-requests.window=10s",
@@ -54,7 +68,8 @@ class RateLimitPropertiesTest {
     @ValueSource(strings = {"aulaflix.rate-limits.bff-requests.requests=0",
             "aulaflix.rate-limits.bff-requests.requests=-1", "aulaflix.rate-limits.bff-requests.window=0s",
             "aulaflix.rate-limits.bff-requests.window=-1m", "aulaflix.rate-limits.bff-requests.window=999ms",
-            "aulaflix.rate-limits.visitor-playback.requests=0", "aulaflix.rate-limits.visitor-playback.window=999ms"})
+            "aulaflix.rate-limits.visitor-playback.requests=0", "aulaflix.rate-limits.visitor-playback.window=999ms",
+            "aulaflix.rate-limits.look-ups-and-sign-ins.requests=0", "aulaflix.rate-limits.sign-ups.window=0s"})
     void refusesToStartWithALimitThatCountsNothing(String property) {
         application.withPropertyValues(property).run(context -> assertThat(context).hasFailed());
     }

@@ -39,7 +39,9 @@ public class AdminCommand {
             new FieldViolation("password", "required"), "The password is required.",
             new FieldViolation("password", "too-short"), "The password must have at least 8 characters.",
             new FieldViolation("password", "too-long"),
-            "The password must have at most 72 bytes in UTF-8; accented letters take 2, emoji 4.");
+            "The password must have at most 72 bytes in UTF-8; accented letters take 2, emoji 4.",
+            new FieldViolation("password", "breached"),
+            "The password has appeared in a known data breach: choose another.");
 
     private final AccountService accounts;
 

@@ -44,7 +44,8 @@ java -jar target/aulaflix-api-0.0.1-SNAPSHOT.jar admin create --email you@exampl
 ```
 
 It asks for the password twice without echoing it, so it needs a terminal. It starts no web server and no scheduled
-job, and it never migrates: while a migration is pending it refuses, so start the API once first.
+job, and it never migrates: while a migration is pending it refuses, so start the API once first. Like every new
+password, it must not be one HIBP has seen in a breach (see [Student accounts](#student-accounts)).
 
 `admin password --email you@example.com` sets a new password the same way and ends every session of that Admin. It is
 the Admins' only reset: no HTTP endpoint creates an Admin or changes an Admin's password.
@@ -143,10 +144,27 @@ lesson, and an Admin's gets a 403: the Admin previews through their own endpoint
 plays an hour, whatever they answer (`aulaflix.rate-limits.visitor-playback.*`), on top of the 600 requests a minute
 every BFF request counts against.
 
+## Student accounts
+
+The web's `/entrar` asks for the email first: `POST /v1/account-lookups` `{ email }` answers `{ exists }`, an Admin's
+email included (ADR 0005). Then either `POST /v1/sessions` `{ email, password }` signs the Student in, or
+`POST /v1/accounts` `{ name, email, password }` creates the Account and signs them in at once; both answer 201
+`{ token, expiresAt }`. The BFF sends the token as `Authorization: Bearer` to `GET /v1/account`, which answers
+`{ name, email, emailConfirmed }`, to `PUT /v1/account` `{ name }`, and to `DELETE /v1/sessions/current`, which ends that
+session only. A Student's session ends after 7 days without use, or 30 days after sign-in. These flows never serve an
+Admin: an Admin's email is taken at sign-up and fails sign-in like a wrong password, and an Admin's token gets 403.
+
+A new password, a Student's or an Admin's, has 8 characters to 72 bytes in UTF-8, and must not be one HIBP has seen in
+a breach (`breached`). Only the first 5 hex digits of its SHA-1 go to `aulaflix.hibp.base-url`; when HIBP fails or
+takes longer than `aulaflix.hibp.timeout`, the password is taken unchecked and a WARN says so. 10 failed sign-ins for
+an email within 15 minutes block it for 15 minutes, with a counter apart from the Admins'. Per IP, the email look-up
+and sign-in together get 60 requests an hour, and sign-up 10 a day, whatever they answer
+(`aulaflix.rate-limits.look-ups-and-sign-ins.*`, `aulaflix.rate-limits.sign-ups.*`).
+
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from
-`secrets/minio.license`, which CI writes there from a secret. `./mvnw verify` also runs the `*IT` tests, which make the
+`secrets/minio.license`, which CI writes there from a secret. HIBP is played by WireMock, in the tests' JVM. `./mvnw verify` also runs the `*IT` tests, which make the
 signed uploads and playback requests over real HTTP. Mutation testing runs with
 `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`, and its report lands in `target/pit-reports/`. It
 mutates the `command`, `config`, `exception` and `service` packages. To check one slice, name the classes it changed:

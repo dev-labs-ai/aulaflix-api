@@ -95,7 +95,7 @@ public class SessionService {
     private static Lifetime lifetimeOf(Role role) {
         return switch (role) {
             case ADMIN -> new Lifetime(Duration.ofMinutes(30), Duration.ofHours(8));
-            case STUDENT -> throw new IllegalStateException("Students have no sessions yet");
+            case STUDENT -> new Lifetime(Duration.ofDays(7), Duration.ofDays(30));
         };
     }
 

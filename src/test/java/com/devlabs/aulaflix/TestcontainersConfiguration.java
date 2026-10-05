@@ -33,6 +33,16 @@ public class TestcontainersConfiguration {
         return registry -> storage.applicationProperties().forEach(registry::add);
     }
 
+    @Bean(destroyMethod = "stop")
+    Hibp hibp() {
+        return new Hibp();
+    }
+
+    @Bean
+    DynamicPropertyRegistrar hibpProperties(Hibp hibp) {
+        return registry -> hibp.applicationProperties().forEach(registry::add);
+    }
+
     @Bean
     StoredVideos storedVideos(AistorContainer storage) {
         return new StoredVideos(storage);

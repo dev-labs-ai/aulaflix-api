@@ -37,6 +37,9 @@ public class AccountEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "email_confirmed_at")
+    private Instant emailConfirmedAt;
+
     protected AccountEntity() {
     }
 
@@ -60,6 +63,10 @@ public class AccountEntity {
         return name;
     }
 
+    public void setName(String name) {
+        this.name = name;
+    }
+
     public String getPasswordHash() {
         return passwordHash;
     }
@@ -74,5 +81,9 @@ public class AccountEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getEmailConfirmedAt() {
+        return emailConfirmedAt;
     }
 }

@@ -325,10 +325,12 @@ class OpenApiDocumentTest extends IntegrationTest {
     }
 
     @Test
-    void servesTheBffGroupWithTheCatalogAndPlaybackAndNoAdminEndpoint() {
+    void servesTheBffGroupWithEveryEndpointButTheAdmins() {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).hasStatusOk().bodyJson()
                 .extractingPath("$.paths").asMap()
-                .containsOnlyKeys("/v1/courses", "/v1/courses/{slug}", "/v1/lessons/{lessonId}/playback");
+                .containsOnlyKeys("/v1/courses", "/v1/courses/{slug}", "/v1/lessons/{lessonId}/playback",
+                        "/v1/account-lookups", "/v1/accounts", "/v1/account", "/v1/sessions",
+                        "/v1/sessions/current");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -490,6 +492,103 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .hasSize(7)
                 .filteredOn(content -> ((Map<?, ?>) content).containsKey("application/problem+json"))
                 .hasSize(6);
+    }
+
+    @Test
+    void documentsTheStudentsAccountAndSessionsWithASessionWhereTheyNeedOne() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/account-lookups": {
+                      "post": {
+                        "tags": ["Accounts"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/AccountLookupRequest"}}
+                          }
+                        },
+                        "responses": {
+                          "200": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountLookup"}}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/accounts": {
+                      "post": {
+                        "tags": ["Accounts"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SignUpRequest"}}}
+                        },
+                        "responses": {
+                          "201": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IssuedSession"}}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/account": {
+                      "get": {
+                        "tags": ["Accounts"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "responses": {
+                          "200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Account"}}}}
+                        }
+                      },
+                      "put": {
+                        "tags": ["Accounts"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "requestBody": {
+                          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountDocument"}}}
+                        },
+                        "responses": {
+                          "200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Account"}}}}
+                        }
+                      }
+                    },
+                    "/v1/sessions": {
+                      "post": {
+                        "tags": ["Sessions"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SignInRequest"}}}
+                        },
+                        "responses": {
+                          "201": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IssuedSession"}}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/sessions/current": {
+                      "delete": {"tags": ["Sessions"], "security": [{"bearer": [], "bffKey": []}]}
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.Account.properties").asMap()
+                .containsOnlyKeys("name", "email", "emailConfirmed");
+    }
+
+    @Test
+    void documentsEveryStatusEachAccountAndSessionEndpointCanAnswer() {
+        assertResponsesIn("bff", "/v1/account-lookups", "post", "200", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/accounts", "post", "201", "400", "401", "403", "409", "429", "500");
+        assertResponsesIn("bff", "/v1/account", "get", "200", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/account", "put", "200", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/sessions", "post", "201", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/sessions/current", "delete", "204", "400", "401", "403", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/sessions'].post.responses['429'].description").asString()
+                .contains("`sign-in-blocked`", "`rate-limited`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/sessions'].post.responses['400'].description").asString()
+                .contains("`invalid-request`", "`invalid-credentials`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/accounts'].post.responses['409'].description").asString()
+                .contains("`email-taken`");
     }
 
     @Test

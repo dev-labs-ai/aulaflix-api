@@ -16,8 +16,9 @@ import com.devlabs.aulaflix.exception.SignInBlockedException;
 import com.devlabs.aulaflix.repository.AccountRepository;
 
 /**
- * Signing in with an email and a password, for one role at a time, each with its own failure counter: so far only the
- * Admins' sign-in, reached only through the SSH tunnel.
+ * Signing in with an email and a password: the Admins' sign-in, reached only through the SSH tunnel, and the Students'
+ * public one, which never serves an Admin. Each keeps its own failure counter, so failures on the public sign-in can
+ * never block an Admin, nor an Admin's failures a Student.
  */
 @Service
 public class SignInService {
@@ -28,6 +29,7 @@ public class SignInService {
     private final PasswordEncoder passwordEncoder;
     private final SessionService sessions;
     private final SignInFailures adminFailures;
+    private final SignInFailures studentFailures;
 
     public SignInService(AccountRepository accounts, PasswordEncoder passwordEncoder, SessionService sessions,
                          Clock clock) {
@@ -35,10 +37,15 @@ public class SignInService {
         this.passwordEncoder = passwordEncoder;
         this.sessions = sessions;
         this.adminFailures = new SignInFailures(clock);
+        this.studentFailures = new SignInFailures(clock);
     }
 
     public IssuedSession signInAsAdmin(String email, String password) {
         return signIn(Role.ADMIN, adminFailures, email, password);
+    }
+
+    public IssuedSession signInAsStudent(String email, String password) {
+        return signIn(Role.STUDENT, studentFailures, email, password);
     }
 
     /**
