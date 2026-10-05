@@ -34,16 +34,36 @@ users: a read-only one, which signs playback, and a read-write one, which signs 
 and deletes. Running it again changes nothing. Only `storage` and `storage-init` hold the root credentials, and the
 console is not published.
 
+The secret files, and the services that mount them:
+
+| File in `./secrets/` | Mounted by |
+|---|---|
+| `spring.datasource.password` | postgres, api |
+| `aulaflix.bff.key` | api, web |
+| `aulaflix.storage.read-only.access-key-id`, `aulaflix.storage.read-only.secret-access-key` | storage-init, api |
+| `aulaflix.storage.read-write.access-key-id`, `aulaflix.storage.read-write.secret-access-key` | storage-init, api |
+| `storage.root-user`, `storage.root-password` | storage, storage-init |
+| `minio.license` | storage |
+
+Compose mounts each file as it is on the host, with its owner and mode, and the API's image runs as the unprivileged
+user 10001, so a file the `api` service mounts must be readable by that user: `chmod 644 secrets/*` locally, which is
+what the commands above already give under the usual `umask 022`. No secret goes in an environment variable, so none
+shows in `docker inspect`.
+
 ## Creating an Admin
 
-No HTTP endpoint creates an Admin. The jar does, when `admin` is its first argument:
+No HTTP endpoint creates an Admin. The jar does, when `admin` is its first argument, and so does the API's image,
+which runs the jar:
 
 ```shell
 ./mvnw -DskipTests package
 java -jar target/aulaflix-api-0.0.1-SNAPSHOT.jar admin create --email you@example.com --name "Your Name"
+# or, in the image, against the Compose stack's database
+docker compose run --rm api admin create --email you@example.com --name "Your Name"
 ```
 
-It asks for the password twice without echoing it, so it needs a terminal. It starts no web server and no scheduled
+It asks for the password twice without echoing it, so it needs a terminal: `docker compose run` allocates one by
+default, and with `-T`, or from a script, the command refuses and creates nothing. It starts no web server and no scheduled
 job, and it never migrates: while a migration is pending it refuses, so start the API once first. Like every new
 password, it must not be one HIBP has seen in a breach (see [Student accounts](#student-accounts)).
 
@@ -160,6 +180,87 @@ takes longer than `aulaflix.hibp.timeout`, the password is taken unchecked and a
 an email within 15 minutes block it for 15 minutes, with a counter apart from the Admins'. Per IP, the email look-up
 and sign-in together get 60 requests an hour, and sign-up 10 a day, whatever they answer
 (`aulaflix.rate-limits.look-ups-and-sign-ins.*`, `aulaflix.rate-limits.sign-ups.*`).
+
+## The API's image and the `full` profile
+
+The `Dockerfile` builds the API's image: the jar on a JRE, run as the unprivileged user 10001, with the heap at 75% of
+the container's memory limit. `docker stop` ends it gracefully: the JVM gets the SIGTERM, Spring Boot lets the
+requests in flight finish, for 30 seconds at most, and Compose waits 40 before it kills.
+
+The `full` profile adds the API's image, built from this repository, and the web's, from `aulaflix-web`'s private
+image on GHCR, so the Admin rehearses Course JSON files against the whole stack before production. The API waits for
+PostgreSQL and the storage to be healthy and for `storage-init` to complete; it reaches the storage at
+`storage:9000`, but signs URLs for `localhost:9000`, where curl and the browser reach it.
+
+```shell
+cp .env.example .env              # the web image's tag; nothing secret
+docker login ghcr.io              # with a GitHub token that has read:packages
+docker compose --profile full up -d --build
+```
+
+The API answers on `127.0.0.1:8080` and the web on `http://localhost:3001`. The web takes its config as `NUXT_*` variables: `NUXT_API_BASE_URL`, the Turnstile site key,
+and `NUXT_BFF_KEY`, which the `web` service reads from `secrets/aulaflix.bff.key` as Nuxt's server starts, so it stays
+out of the Compose file and of `docker inspect`. The API applies its migrations as it starts; then create the Admin:
+
+```shell
+docker compose run --rm api admin create --email you@example.com --name "Your Name"
+```
+
+### Rehearsing a Course
+
+The Course's document is a JSON file (see [Authoring a Course](#authoring-a-course)), say `course.json`, with every
+field but `freeLessonId`, which needs the Lesson first:
+
+```json
+{
+  "slug": "git-do-zero",
+  "title": "Git do zero",
+  "summary": "Versione seu código com Git, do primeiro commit ao pull request.",
+  "area": "DEVOPS", "icon": "CONTAINER", "tone": "SAGE",
+  "about": ["Um curso prático sobre o Git do dia a dia."],
+  "learn": ["Criar commits", "Trabalhar com branches"],
+  "audience": ["Quem está começando a programar"],
+  "plannedTopics": ["Commits", "Branches"],
+  "faq": [{ "question": "Preciso instalar algo?", "answer": "Só o Git." }],
+  "priceCents": 19700, "pixDiscountPercent": 10, "maxInstallments": 1
+}
+```
+
+Then, with `curl` and `jq`:
+
+```shell
+API=http://localhost:8080
+read -rsp 'Password: ' PASSWORD; echo
+TOKEN=$(jq -n --arg email you@example.com --arg password "$PASSWORD" '{$email, $password}' \
+    | curl -sf -H 'Content-Type: application/json' -d @- $API/v1/admin/sessions | jq -r .token)
+auth=(-H "Authorization: Bearer $TOKEN")
+json=(-H 'Content-Type: application/json')
+
+# 1. The Draft, then its whole document from the file; readiness lists what each next state still misses
+COURSE_ID=$(jq '{slug, title}' course.json | curl -sf "${auth[@]}" "${json[@]}" -d @- $API/v1/admin/courses | jq .id)
+curl -sf -X PUT "${auth[@]}" "${json[@]}" -d @course.json $API/v1/admin/courses/$COURSE_ID | jq .readiness
+
+# 2. A Module and a Lesson
+MODULE_ID=$(curl -sf "${auth[@]}" "${json[@]}" -d '{"title": "Primeiros passos"}' \
+    $API/v1/admin/courses/$COURSE_ID/modules | jq .id)
+LESSON_ID=$(curl -sf "${auth[@]}" "${json[@]}" -d '{"title": "O primeiro commit", "slug": "o-primeiro-commit"}' \
+    $API/v1/admin/modules/$MODULE_ID/lessons | jq .id)
+
+# 3. The video: upload it straight to the storage, link it, and publish the Lesson
+UPLOAD=$(curl -sf -X POST "${auth[@]}" $API/v1/admin/lessons/$LESSON_ID/video-uploads)
+curl -sf --upload-file aula.mp4 -H 'Content-Type: video/mp4' "$(jq -r .uploadUrl <<<"$UPLOAD")"
+jq '{objectKey}' <<<"$UPLOAD" | curl -sf -X PUT "${auth[@]}" "${json[@]}" -d @- $API/v1/admin/lessons/$LESSON_ID/video
+curl -sf -X PUT "${auth[@]}" "${json[@]}" -d '{"status": "PUBLISHED"}' $API/v1/admin/lessons/$LESSON_ID/status
+
+# 4. The Free lesson, then On sale
+jq --argjson lesson $LESSON_ID '.freeLessonId = $lesson' course.json \
+    | curl -sf -X PUT "${auth[@]}" "${json[@]}" -d @- $API/v1/admin/courses/$COURSE_ID | jq .readiness
+curl -sf -X PUT "${auth[@]}" "${json[@]}" -d '{"status": "ON_SALE"}' $API/v1/admin/courses/$COURSE_ID/status
+```
+
+The Course now shows at `http://localhost:3001/cursos/git-do-zero`, with its price, its Syllabus and the Free lesson,
+which plays. When the API refuses the file, `curl -sf` hides why: drop the `f` to see the `ProblemDetail`, fix the
+file and `PUT` it again. `docker compose --profile full down -v` throws the rehearsal away, volumes included.
 
 ## Tests
 
