@@ -53,6 +53,7 @@ class MoneyBackTest extends IntegrationTest {
 
     private static final String PASSWORD = "correct horse battery";
     private static final int PIX_PRICE_CENTS = 44730;
+    private static final int CARD_PRICE_CENTS = 49700;
     private static final String COURSE_TITLE = "Backend com Node.js";
 
     @Autowired
@@ -493,6 +494,34 @@ class MoneyBackTest extends IntegrationTest {
         assertThat(adminOrders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("REFUNDING");
     }
 
+    /** A card is never under a Pix cautionary block: refunded with no refund listed, it was refunded all the same. */
+    @Test
+    void aCardRefundedWithNoRefundListedIsARefund() {
+        String code = paidByCard(1);
+        String charge = asaas.cardSale(code, "REFUNDED", 1, CARD_PRICE_CENTS, null).getFirst();
+
+        deliver("PAYMENT_REFUNDED", charge, "REFUNDED", code);
+        worker.processPending();
+
+        assertThat(adminOrders.get(code)).bodyJson().isLenientlyEqualTo("""
+                {"status": "REFUNDED", "enrollment": {"status": "ENDED", "endReason": "REFUND"}}""");
+        assertThat(new StoredOutboxEmails(jdbc).recipientsOf("REFUND_NOTICE", code)).containsExactly(studentEmail);
+    }
+
+    /** A chargeback of a card paid in installments shows on the charge the Order keeps. */
+    @Test
+    void aChargebackOfACardPaidInInstallmentsReversesTheOrder() {
+        String code = paidByCard(10);
+        String charge = asaas.cardSale(code, "CHARGEBACK_REQUESTED", 10, CARD_PRICE_CENTS, null).getFirst();
+
+        deliver("PAYMENT_CHARGEBACK_REQUESTED", charge, "CHARGEBACK_REQUESTED", code);
+        worker.processPending();
+
+        assertThat(adminOrders.get(code)).bodyJson().isLenientlyEqualTo("""
+                {"status": "REVERSED", "enrollment": {"status": "ENDED", "endReason": "CHARGEBACK"}}""");
+        assertThat(playback()).hasStatus(HttpStatus.CONFLICT);
+    }
+
     /** Money that went back before the Order was ever seen paid was never the API's to give back. */
     @Test
     void aRefundedChargeOfAnOrderNeverSeenPaidPaysNothing() {
@@ -537,6 +566,16 @@ class MoneyBackTest extends IntegrationTest {
         String code = orders.placedPix(course, Cpfs.newCpf());
         asaas.chargeIs(Asaas.chargeOf(code), "CONFIRMED", PIX_PRICE_CENTS, code, false);
         deliver("PAYMENT_CONFIRMED", Asaas.chargeOf(code), "CONFIRMED", code);
+        worker.processPending();
+        assertThat(playback()).hasStatusOk();
+        return code;
+    }
+
+    /** A card Order, placed by the Student and paid on its Checkout in the installments: its webhook came. */
+    private String paidByCard(int installments) {
+        String code = orders.placedCard(course);
+        String charge = asaas.cardSale(code, "CONFIRMED", installments, CARD_PRICE_CENTS, null).getFirst();
+        deliver("PAYMENT_CONFIRMED", charge, "CONFIRMED", code);
         worker.processPending();
         assertThat(playback()).hasStatusOk();
         return code;

@@ -34,13 +34,22 @@ class PaymentConfigurationTest {
 
     private AsaasGateway gateway;
 
+    private AsaasProperties properties;
+
     @BeforeEach
     void buildTheClient() {
         asaas.start();
-        gateway = new PaymentConfiguration().asaasGateway(new AsaasProperties(
+        properties = new AsaasProperties(
                 URI.create(asaas.baseUrl() + "/v3"), API_KEY, TIMEOUT, RETRY_AFTER,
                 "webhook-token-of-the-test-0123456789", Duration.ofSeconds(5),
-                Duration.ofMinutes(1), Duration.ofMinutes(2), Duration.ofMinutes(5), Duration.ofHours(6)));
+                Duration.ofMinutes(1), Duration.ofMinutes(2), Duration.ofMinutes(5), Duration.ofHours(7));
+        gateway = new PaymentConfiguration().asaasGateway(properties);
+    }
+
+    /** Reconciliation re-reads a paid Order's charge at the interval the properties give. */
+    @Test
+    void reReadsPaidOrdersAtTheConfiguredInterval() {
+        assertThat(new PaymentConfiguration().paidRecheckInterval(properties).value()).isEqualTo(Duration.ofHours(7));
     }
 
     @AfterEach
