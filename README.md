@@ -217,7 +217,9 @@ docker compose --profile full up -d --build
 
 The API answers on `127.0.0.1:8080` and the web on `http://localhost:3001`. The web takes its config as `NUXT_*` variables: `NUXT_API_BASE_URL`, the Turnstile site key,
 and `NUXT_BFF_KEY`, which the `web` service reads from `secrets/aulaflix.bff.key` as Nuxt's server starts, so it stays
-out of the Compose file and of `docker inspect`. The API applies its migrations as it starts; then create the Admin:
+out of the Compose file and of `docker inspect`. Until `aulaflix-web` moves its routes onto this API, its image
+still reads none of those variables and shows its built-in catalog, so the rehearsal checks the API but not yet the
+web. The API applies its migrations as it starts; then create the Admin:
 
 ```shell
 docker compose run --rm api admin create --email you@example.com --name "Your Name"
