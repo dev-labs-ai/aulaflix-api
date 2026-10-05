@@ -133,6 +133,18 @@ class PaymentMethodSwitchTest extends IntegrationTest {
         assertThat(orders.get(pix)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
     }
 
+    @Test
+    void keepsThePixOrderAndPlacesNothingWhenAsaasRefusesToDeleteItsPendingCharge() {
+        String pix = orders.placedPix(course, Cpfs.newCpf());
+        asaas.chargeIs(Asaas.chargeOf(pix), "PENDING", PIX_PRICE_CENTS, pix, false);
+        asaas.answerNextDeletionOf(Asaas.chargeOf(pix), Asaas.error(400, "invalid_action"));
+
+        assertThat(orders.placeCard(course)).hasStatus(HttpStatus.BAD_GATEWAY).bodyJson()
+                .extractingPath("$.type").isEqualTo("https://aulaflix.com.br/problems/payment-provider-error");
+        assertThat(asaas.checkoutsCreatedFor(slug)).isEmpty();
+        assertThat(orders.get(pix)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
+    }
+
     /** The Student paid the Pix, then chose card before the webhook came: the payment wins, and they have the Course. */
     @Test
     void refusesTheSwitchWhenAsaasShowsTheAwaitingOrderPaid() {

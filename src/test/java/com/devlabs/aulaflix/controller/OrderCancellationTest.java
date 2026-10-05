@@ -74,6 +74,8 @@ class OrderCancellationTest extends IntegrationTest {
 
     private AsaasWebhooks webhooks;
 
+    private String adminToken;
+
     private AdminCourses courses;
 
     private StudentOrders orders;
@@ -82,7 +84,8 @@ class OrderCancellationTest extends IntegrationTest {
     void signInAnAdminAndAStudent() {
         String email = "admin-" + UUID.randomUUID() + "@aulaflix.com.br";
         accounts.createAdmin(email, "Ana", PASSWORD);
-        courses = new AdminCourses(mvc, new AdminApi(mvc).sessionToken(email, PASSWORD), storedVideos);
+        adminToken = new AdminApi(mvc).sessionToken(email, PASSWORD);
+        courses = new AdminCourses(mvc, adminToken, storedVideos);
         webhooks = new AsaasWebhooks(mvc);
         BffApi bff = new BffApi(mvc);
         orders = new StudentOrders(bff, new StudentApi(bff).signedUp(StudentApi.newEmail(), PASSWORD));
@@ -183,6 +186,28 @@ class OrderCancellationTest extends IntegrationTest {
             assertThat(refused).hasStatus(HttpStatus.NOT_FOUND).bodyJson().extractingPath("$.type")
                     .isEqualTo("https://aulaflix.com.br/problems/order-not-found");
         }
+        assertThat(asaas.cancellationsOf(Asaas.checkoutOf(code))).isZero();
+        assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
+    }
+
+    @Test
+    void asksForASession() {
+        String code = orders.placedCard(courses.onSale(newSlug()));
+        StudentOrders visitor = new StudentOrders(new BffApi(mvc), "no-such-token");
+
+        assertThat(visitor.cancel(code)).hasStatus(HttpStatus.UNAUTHORIZED)
+                .hasHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        assertThat(asaas.cancellationsOf(Asaas.checkoutOf(code))).isZero();
+        assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
+    }
+
+    @Test
+    void refusesAnAdmin() {
+        String code = orders.placedCard(courses.onSale(newSlug()));
+        StudentOrders admin = new StudentOrders(new BffApi(mvc), adminToken);
+
+        assertThat(admin.cancel(code)).hasStatus(HttpStatus.FORBIDDEN).bodyJson().extractingPath("$.type")
+                .isEqualTo("https://aulaflix.com.br/problems/forbidden");
         assertThat(asaas.cancellationsOf(Asaas.checkoutOf(code))).isZero();
         assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
     }
