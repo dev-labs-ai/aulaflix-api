@@ -94,8 +94,9 @@ with `DELETE /v1/admin/sessions/current`.
 
 A Course starts as a Draft that only Admins see: `POST /v1/admin/courses` `{ "slug": …, "title": … }`. Read its
 document with `GET /v1/admin/courses/{courseId}`, edit the JSON, and `PUT` it back whole; a field left out is
-cleared, and what only reads show (`id`, `status`, `readiness`) may stay in the body. `readiness` lists, for each
-state the Course can move to next, the fields still missing. `DELETE` removes a Draft, and only a Draft, with its
+cleared, and what only reads show (`id`, `status`, `readiness`, `waitlistCount`) may stay in the body. `readiness`
+lists, for each state the Course can move to next, the fields still missing. While the Course is Coming soon,
+`waitlistCount` tells how many wait on its Waitlist, never who. `DELETE` removes a Draft, and only a Draft, with its
 Modules and Lessons.
 
 `PUT /v1/admin/courses/{courseId}/status` `{ "status": "COMING_SOON" }` announces the Course: it shows in the public
@@ -249,9 +250,10 @@ nothing else.
 ### A CAPTCHA past the soft limits
 
 Normal use never meets a CAPTCHA: one appears only past a soft limit, when traffic looks abusive. Per client IP, the
-email look-up and sign-in together get 10 within 15 minutes, sign-up 3 an hour and the reset-code request 5 an hour;
-for everyone at once, 300, 60 and 60 an hour (`aulaflix.soft-limits.<operation>.per-ip.*` and `.global.*`). Past
-either, each request needs a fresh Cloudflare Turnstile token, which the BFF forwards in `AulaFlix-Captcha-Token`;
+email look-up and sign-in together get 10 within 15 minutes, sign-up 3 an hour, the reset-code request 5 an hour and
+joining a Waitlist by email 3 an hour; for everyone at once, 300, 60, 60 and 60 an hour
+(`aulaflix.soft-limits.<operation>.per-ip.*` and `.global.*`). Past either, each request needs a fresh Cloudflare
+Turnstile token, which the BFF forwards in `AulaFlix-Captcha-Token`;
 without one, or with one Turnstile rejects (invalid, expired after 5 minutes, or already spent), the answer is 429
 `captcha-required`, without `Retry-After`, and the web shows Turnstile and sends the request again. The API verifies
 each token at `aulaflix.turnstile.base-url`'s `siteverify` with the secret file `aulaflix.turnstile.secret-key` and the
@@ -301,6 +303,21 @@ answer 204 and are idempotent. Only a published Lesson of an On sale Course take
 included, answers 404 `lesson-not-found`), and only with an active Enrollment in its Course (409
 `enrollment-required`). The marks belong to the Student, not to the Enrollment: once it ends they are out of reach,
 and a new Enrollment in the Course brings them back as they were.
+
+## Waitlists
+
+A Visitor joins a Coming soon Course's Waitlist with `POST /v1/waitlist-entries` `{ courseId, email }`, which answers
+204 whether or not the email was listed already or has an Account, and sends no email: single opt-in. The email is
+trimmed and lower-cased, so it is listed once however it is typed; a malformed one gets 400 `invalid-request`
+(`invalid-email`). An unknown, Draft or On sale Course gets one answer, 409 `waitlist-closed`. Each client IP gets 10
+joins by email a day, whatever they answer (`aulaflix.rate-limits.waitlist-entries.*`), and a CAPTCHA past its soft
+limits (above). Admins are refused.
+
+With the Student's token, `PUT /v1/account/waitlists/{courseId}` joins in one click with the Account's email,
+idempotently (409 `waitlist-closed` as above), and `DELETE` leaves, answering 204 whatever there was. `GET` answers 204
+when an entry holds the Account's email, made as a Visitor before signing up too, or 404 `not-on-waitlist`. An entry
+holds only the email and the Course, with no link to an Account; Visitors leave by the unsubscribe link of the launch
+email. An Admin's token gets 403 on all of these.
 
 ## Orders
 

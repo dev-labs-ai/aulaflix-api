@@ -336,7 +336,8 @@ class OpenApiDocumentTest extends IntegrationTest {
                         "/v1/account/enrollments", "/v1/account/enrollments/{courseId}",
                         "/v1/account/completed-lessons/{lessonId}", "/v1/account/lesson-visits",
                         "/v1/account/orders", "/v1/account/orders/{code}", "/v1/password-reset-codes",
-                        "/v1/password-resets", "/v1/account/password-change-codes", "/v1/account/password");
+                        "/v1/password-resets", "/v1/account/password-change-codes", "/v1/account/password",
+                        "/v1/waitlist-entries", "/v1/account/waitlists/{courseId}");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -786,7 +787,8 @@ class OpenApiDocumentTest extends IntegrationTest {
 
     /** Each operation with a soft limit takes the token, and may ask for it, or fail to verify it. */
     @ParameterizedTest
-    @ValueSource(strings = {"/v1/account-lookups", "/v1/accounts", "/v1/sessions", "/v1/password-reset-codes"})
+    @ValueSource(strings = {"/v1/account-lookups", "/v1/accounts", "/v1/sessions", "/v1/password-reset-codes",
+            "/v1/waitlist-entries"})
     void documentsTheCaptchaTokenWhereASoftLimitAsksForIt(String path) {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
@@ -824,7 +826,7 @@ class OpenApiDocumentTest extends IntegrationTest {
     void documentsTheCaptchaTokenNowhereElse() {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths[*][*].parameters[?(@.name == 'AulaFlix-Captcha-Token')]").asArray()
-                .hasSize(4);
+                .hasSize(5);
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/password-resets'].post.responses").asMap().doesNotContainKey("503");
     }
@@ -1019,6 +1021,61 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/account/orders/{code}'].get.responses['404'].description").asString()
                 .contains("`order-not-found`");
+    }
+
+    @Test
+    void documentsTheWaitlistByEmailWithoutASessionAndTheStudentsWithOne() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/waitlist-entries": {
+                      "post": {
+                        "tags": ["Waitlist"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/WaitlistEntryRequest"}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/account/waitlists/{courseId}": {
+                      "get": {"tags": ["Waitlist"], "security": [{"bearer": [], "bffKey": []}]},
+                      "put": {"tags": ["Waitlist"], "security": [{"bearer": [], "bffKey": []}]},
+                      "delete": {"tags": ["Waitlist"], "security": [{"bearer": [], "bffKey": []}]}
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.WaitlistEntryRequest.properties").asMap()
+                .containsOnlyKeys("courseId", "email");
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.components.schemas.AdminCourse.properties").asMap()
+                .containsKey("waitlistCount");
+    }
+
+    @Test
+    void documentsEveryStatusEachWaitlistEndpointCanAnswer() {
+        assertResponsesIn("bff", "/v1/waitlist-entries", "post",
+                "204", "400", "401", "403", "409", "429", "500", "503");
+        assertResponsesIn("bff", "/v1/account/waitlists/{courseId}", "get",
+                "204", "400", "401", "403", "404", "429", "500");
+        assertResponsesIn("bff", "/v1/account/waitlists/{courseId}", "put",
+                "204", "400", "401", "403", "409", "429", "500");
+        assertResponsesIn("bff", "/v1/account/waitlists/{courseId}", "delete",
+                "204", "400", "401", "403", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/waitlist-entries'].post.responses['409'].description").asString()
+                .contains("`waitlist-closed`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/waitlists/{courseId}'].put.responses['409'].description")
+                .asString().contains("`waitlist-closed`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/waitlists/{courseId}'].get.responses['404'].description")
+                .asString().contains("`not-on-waitlist`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/waitlist-entries'].post.responses['403'].description").asString()
+                .contains("`invalid-bff-key`", "Admin");
     }
 
     @Test

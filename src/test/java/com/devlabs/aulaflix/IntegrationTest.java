@@ -23,7 +23,8 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
         "aulaflix.scheduling.enabled=false", "aulaflix.outbox.send-rate.emails=1000",
         "aulaflix.soft-limits.look-ups-and-sign-ins.global.requests=" + IntegrationTest.OUT_OF_REACH,
         "aulaflix.soft-limits.sign-ups.global.requests=" + IntegrationTest.OUT_OF_REACH,
-        "aulaflix.soft-limits.password-reset-codes.global.requests=" + IntegrationTest.OUT_OF_REACH})
+        "aulaflix.soft-limits.password-reset-codes.global.requests=" + IntegrationTest.OUT_OF_REACH,
+        "aulaflix.soft-limits.waitlist-entries.global.requests=" + IntegrationTest.OUT_OF_REACH})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 public abstract class IntegrationTest {

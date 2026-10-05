@@ -91,6 +91,13 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void allowsEachClientIp10WaitlistJoinsByEmailADayByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::waitlistEntryLimit)
+                .isEqualTo(new RateLimit("waitlist-entries", 10, Duration.ofDays(1))));
+    }
+
+    @Test
     void takesLowerLimitsFromConfiguration() {
         application.withPropertyValues("aulaflix.rate-limits.bff-requests.requests=5",
                         "aulaflix.rate-limits.bff-requests.window=10s",
@@ -115,7 +122,8 @@ class RateLimitPropertiesTest {
             "aulaflix.rate-limits.checkouts-per-student.requests=0", "aulaflix.rate-limits.checkouts-per-ip.window=0s",
             "aulaflix.rate-limits.checkouts.requests=0",
             "aulaflix.rate-limits.email-confirmations.requests=0",
-            "aulaflix.rate-limits.password-reset-codes.requests=0", "aulaflix.rate-limits.password-resets.window=0s"})
+            "aulaflix.rate-limits.password-reset-codes.requests=0", "aulaflix.rate-limits.password-resets.window=0s",
+            "aulaflix.rate-limits.waitlist-entries.requests=0", "aulaflix.rate-limits.waitlist-entries.window=0s"})
     void refusesToStartWithALimitThatCountsNothing(String property) {
         application.withPropertyValues(property).run(context -> assertThat(context).hasFailed());
     }

@@ -36,6 +36,9 @@ public record AdminCourse(
         @Schema(description = "Left out once the Course is On sale, with no state left to move to")
         Readiness readiness,
 
+        @Schema(description = "How many are waiting for the launch; only while the Course is Coming soon")
+        Long waitlistCount,
+
         @Schema(description = "When the Course went Coming soon; left out if it never did")
         Instant comingSoonAt,
 
