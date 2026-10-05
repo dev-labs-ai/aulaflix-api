@@ -180,6 +180,19 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "The BFF sends the browser's IP address as AulaFlix-Client-IP."), request);
     }
 
+    /**
+     * Logged once per key and window, naming the limit and the key: a line per request would let a flood fill the log.
+     */
+    @ExceptionHandler(RateLimitedException.class)
+    ResponseEntity<Object> rateLimited(RateLimitedException refusal, HttpServletRequest request) {
+        if (refusal.firstOfItsWindow()) {
+            log.warn("Refused {} {}: rate-limited; {}, until {}", request.getMethod(), request.getRequestURI(),
+                    refusal.getMessage(), clock.instant().plus(refusal.retryAfter()));
+        }
+        return respond(new Refusal(HttpStatus.TOO_MANY_REQUESTS, "rate-limited", "Rate limited",
+                "Too many requests. Try again in Retry-After seconds."), retryAfter(refusal.retryAfter()), Map.of());
+    }
+
     /** A valid session of the wrong role, refused by the chain or by {@code @PreAuthorize}. */
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<Object> forbidden(HttpServletRequest request) {
@@ -296,6 +309,10 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     private ResponseEntity<Object> refuse(Refusal refusal, HttpServletRequest request, HttpHeaders headers,
                                           Map<String, Object> extensions) {
         log.warn("Refused {} {}: {}", request.getMethod(), request.getRequestURI(), refusal.name());
+        return respond(refusal, headers, extensions);
+    }
+
+    private ResponseEntity<Object> respond(Refusal refusal, HttpHeaders headers, Map<String, Object> extensions) {
         ProblemDetail problem = problem(refusal);
         extensions.forEach(problem::setProperty);
         return ResponseEntity.status(refusal.status()).headers(headers).body(problem);

@@ -297,8 +297,8 @@ class OpenApiDocumentTest extends IntegrationTest {
 
     @Test
     void documentsEveryStatusEachCatalogEndpointCanAnswer() {
-        assertResponsesIn("bff", "/v1/courses", "get", "200", "400", "401", "403", "500");
-        assertResponsesIn("bff", "/v1/courses/{slug}", "get", "200", "400", "401", "403", "404", "500");
+        assertResponsesIn("bff", "/v1/courses", "get", "200", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/courses/{slug}", "get", "200", "400", "401", "403", "404", "429", "500");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/courses'].get.responses['403'].description").asString()
                 .contains("invalid-bff-key")
@@ -309,9 +309,25 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/courses/{slug}'].get.responses[*].content")
                 .asArray()
-                .hasSize(6)
+                .hasSize(7)
                 .filteredOn(content -> ((Map<?, ?>) content).containsKey("application/problem+json"))
-                .hasSize(5);
+                .hasSize(6);
+    }
+
+    @Test
+    void tellsTheBffWhenToRetryARateLimitedRequest() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/courses'].get.responses['429']").isEqualTo(Map.of(
+                        "description", "`rate-limited`: past a limit on requests; retry after Retry-After seconds",
+                        "headers", Map.of("Retry-After", Map.of(
+                                "description", "Seconds until the limit lets this request through",
+                                "schema", Map.of("type", "integer"))),
+                        "content", Map.of("application/problem+json",
+                                Map.of("schema", Map.of("$ref", "#/components/schemas/ProblemDetail")))));
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths[*][*].responses['429'].description").asArray()
+                .isNotEmpty()
+                .noneSatisfy(description -> assertThat(description).asString().contains("rate-limited"));
     }
 
     private void assertResponses(String path, String method, String... statuses) {

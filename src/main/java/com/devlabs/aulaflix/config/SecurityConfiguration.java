@@ -29,6 +29,7 @@ import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
+import com.devlabs.aulaflix.service.RateLimiter;
 import com.devlabs.aulaflix.service.SessionService;
 
 /**
@@ -40,7 +41,7 @@ import com.devlabs.aulaflix.service.SessionService;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(BffProperties.class)
+@EnableConfigurationProperties({BffProperties.class, RateLimitProperties.class})
 public class SecurityConfiguration {
 
     /** The OpenAPI document and Swagger UI, which the Admin reads through the SSH tunnel like its own endpoints. */
@@ -50,6 +51,7 @@ public class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
+                                       RateLimiter limiter, RateLimitProperties limits,
                                        @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         ProblemResponses problems = new ProblemResponses(resolver);
         return http
@@ -60,7 +62,8 @@ public class SecurityConfiguration {
                 .requestCache(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(new SessionTokenFilter(sessions, problems), AnonymousAuthenticationFilter.class)
-                .addFilterBefore(new BffRequestFilter(bffRequests(), bff.key(), resolver), SessionTokenFilter.class)
+                .addFilterBefore(new BffRequestFilter(bffRequests(), bff.key(), limiter, limits.bffRequestLimit(),
+                        resolver), SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 import jakarta.servlet.FilterChain;
@@ -17,10 +18,15 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import com.devlabs.aulaflix.exception.InvalidBffKeyException;
 import com.devlabs.aulaflix.exception.InvalidClientIpException;
+import com.devlabs.aulaflix.exception.RateLimitedException;
+import com.devlabs.aulaflix.service.RateLimit;
+import com.devlabs.aulaflix.service.RateLimitKey;
+import com.devlabs.aulaflix.service.RateLimiter;
 
 /**
  * Lets through only what the BFF sends: its key, then the browser's IP, which is read only once the key shows the BFF
- * sent it. A request it should not see, the Admin's through the SSH tunnel, is never filtered.
+ * sent it, and counts the request against that IP's general limit. A request it should not see, the Admin's through
+ * the SSH tunnel, is never filtered, so never counted.
  */
 final class BffRequestFilter extends OncePerRequestFilter {
 
@@ -38,11 +44,16 @@ final class BffRequestFilter extends OncePerRequestFilter {
 
     private final RequestMatcher bffRequests;
     private final byte[] key;
+    private final RateLimiter limiter;
+    private final RateLimit bffRequestLimit;
     private final HandlerExceptionResolver problems;
 
-    BffRequestFilter(RequestMatcher bffRequests, String key, HandlerExceptionResolver problems) {
+    BffRequestFilter(RequestMatcher bffRequests, String key, RateLimiter limiter, RateLimit bffRequestLimit,
+                     HandlerExceptionResolver problems) {
         this.bffRequests = bffRequests;
         this.key = key.getBytes(StandardCharsets.UTF_8);
+        this.limiter = limiter;
+        this.bffRequestLimit = bffRequestLimit;
         this.problems = problems;
     }
 
@@ -58,8 +69,15 @@ final class BffRequestFilter extends OncePerRequestFilter {
             problems.resolveException(request, response, null, new InvalidBffKeyException());
             return;
         }
-        if (!carriesAClientIp(request)) {
+        Optional<InetAddress> clientIp = clientIp(request);
+        if (clientIp.isEmpty()) {
             problems.resolveException(request, response, null, new InvalidClientIpException());
+            return;
+        }
+        try {
+            limiter.consume(bffRequestLimit, RateLimitKey.clientIp(clientIp.get()));
+        } catch (RateLimitedException refusal) {
+            problems.resolveException(request, response, null, refusal);
             return;
         }
         chain.doFilter(request, response);
@@ -78,16 +96,15 @@ final class BffRequestFilter extends OncePerRequestFilter {
      * An IPv4 or IPv6 address as the BFF writes it, read as a literal so that no name is ever looked up. Without it
      * every visitor would fall into the bucket of the BFF's own address.
      */
-    private static boolean carriesAClientIp(HttpServletRequest request) {
+    private static Optional<InetAddress> clientIp(HttpServletRequest request) {
         String clientIp = request.getHeader(CLIENT_IP_HEADER);
         if (clientIp == null || !(IPV4.matcher(clientIp).matches() || IPV6.matcher(clientIp).matches())) {
-            return false;
+            return Optional.empty();
         }
         try {
-            InetAddress.ofLiteral(clientIp);
-            return true;
+            return Optional.of(InetAddress.ofLiteral(clientIp));
         } catch (IllegalArgumentException notAnAddress) {
-            return false;
+            return Optional.empty();
         }
     }
 }

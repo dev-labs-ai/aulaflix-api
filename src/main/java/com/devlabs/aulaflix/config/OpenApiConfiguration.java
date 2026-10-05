@@ -10,7 +10,9 @@ import io.swagger.v3.oas.annotations.info.Info;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.headers.Header;
 import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.IntegerSchema;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
@@ -21,6 +23,7 @@ import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 
 /**
  * The spec and Swagger UI are on in every environment: only the SSH tunnel reaches them, the same way in as the Admin
@@ -84,7 +87,10 @@ public class OpenApiConfiguration {
         };
     }
 
-    /** Every BFF endpoint takes the BFF's key and the browser's IP, and refuses a request without either. */
+    /**
+     * Every BFF endpoint takes the BFF's key and the browser's IP, refuses a request without either, and counts it
+     * against the IP's general limit.
+     */
     private static OpenApiCustomizer bffRails() {
         return openApi -> operations(openApi).forEach(operation -> {
             operation.addSecurityItem(new SecurityRequirement().addList(BFF_KEY));
@@ -95,15 +101,21 @@ public class OpenApiConfiguration {
                     .schema(new StringSchema().example("203.0.113.7")));
             addRefusal(operation, "400", "`invalid-client-ip`: `AulaFlix-Client-IP` is missing or not an IP address");
             addRefusal(operation, "403", "`invalid-bff-key`: the request did not come from the BFF");
+            addRefusal(operation, "429", "`rate-limited`: past a limit on requests; retry after Retry-After seconds")
+                    .addHeaderObject(HttpHeaders.RETRY_AFTER, new Header()
+                    .description("Seconds until the limit lets this request through")
+                    .schema(new IntegerSchema().format(null)));
         });
     }
 
     /** Adds the refusal, or appends it to what the endpoint already answers with that status. */
-    private static void addRefusal(Operation operation, String status, String description) {
+    private static ApiResponse addRefusal(Operation operation, String status, String description) {
         ApiResponse existing = operation.getResponses().get(status);
-        operation.getResponses().addApiResponse(status, existing == null
+        ApiResponse refusal = existing == null
                 ? problem(description)
-                : existing.description(existing.getDescription() + "; or " + description));
+                : existing.description(existing.getDescription() + "; or " + description);
+        operation.getResponses().addApiResponse(status, refusal);
+        return refusal;
     }
 
     private static Stream<Operation> operations(OpenAPI openApi) {

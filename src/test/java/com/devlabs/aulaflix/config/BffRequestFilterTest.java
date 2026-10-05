@@ -32,7 +32,7 @@ class BffRequestFilterTest extends IntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"/v1/courses", "/v1/courses/backend-com-node-js", "/v1/nothing-here", "/nothing-here"})
     void refusesARequestWithoutTheKeyWhateverItAsksFor(String path) {
-        MvcTestResult result = mvc.get().uri(path).header("AulaFlix-Client-IP", BffApi.CLIENT_IP).exchange();
+        MvcTestResult result = mvc.get().uri(path).header("AulaFlix-Client-IP", BffApi.newClientIp()).exchange();
 
         assertInvalidBffKey(result, path);
     }
@@ -43,7 +43,7 @@ class BffRequestFilterTest extends IntegrationTest {
     void refusesARequestWithAWrongKey(String key) {
         MvcTestResult result = mvc.get().uri("/v1/courses")
                 .header("AulaFlix-BFF-Key", key)
-                .header("AulaFlix-Client-IP", BffApi.CLIENT_IP)
+                .header("AulaFlix-Client-IP", BffApi.newClientIp())
                 .exchange();
 
         assertInvalidBffKey(result, "/v1/courses");
@@ -53,7 +53,7 @@ class BffRequestFilterTest extends IntegrationTest {
     void refusesAWrongKeyBeforeLookingAtTheSessionToken() {
         MvcTestResult result = mvc.get().uri("/v1/courses")
                 .header("AulaFlix-BFF-Key", "wrong")
-                .header("AulaFlix-Client-IP", BffApi.CLIENT_IP)
+                .header("AulaFlix-Client-IP", BffApi.newClientIp())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer not-a-session")
                 .exchange();
 
