@@ -17,6 +17,9 @@ public record AdminEnrollment(
         Instant startedAt,
         EnrollmentOrigin origin,
 
+        @Schema(description = "The code of the Order whose payment granted it", example = "K7M2Q9XA")
+        String orderCode,
+
         @Schema(description = "The Admin who granted a manual Enrollment")
         AccountSummary grantedBy,
 

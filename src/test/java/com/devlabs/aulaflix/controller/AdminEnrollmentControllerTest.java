@@ -29,11 +29,13 @@ import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.AdminEnrollments;
 import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.IntegrationTest;
+import com.devlabs.aulaflix.Mailpit;
 import com.devlabs.aulaflix.StoredAccounts;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.dto.AccountSummary;
 import com.devlabs.aulaflix.service.AccountService;
+import com.devlabs.aulaflix.service.EmailOutbox;
 import com.jayway.jsonpath.JsonPath;
 
 /**
@@ -53,6 +55,12 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private EmailOutbox outbox;
+
+    @Autowired
+    private Mailpit mailpit;
 
     private AccountSummary admin;
 
@@ -113,6 +121,20 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
                           "grantNote": "%s"
                         }""".formatted(id, studentIdOf(email), email, course, slug,
                         clock.instant().truncatedTo(ChronoUnit.MICROS), admin.id(), admin.email(), NOTE));
+    }
+
+    /** The Admin tells the Student: the only email they ever got is the welcome one that came with their Account. */
+    @Test
+    void sendsNoEmailForAGrant() {
+        long course = courses.onSale(newSlug());
+        String email = StudentApi.newEmail();
+        new StudentApi(bff).signedUp(email, PASSWORD);
+
+        assertThat(enrollments.grant(email, course, NOTE)).hasStatus(HttpStatus.CREATED);
+        outbox.drain();
+
+        assertThat(mailpit.to(email)).singleElement().extracting(Mailpit.Email::subject)
+                .isEqualTo("Boas-vindas à AulaFlix: confirme seu email");
     }
 
     @Test

@@ -285,10 +285,47 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "An ending is final: grant a new Enrollment to give access back."), request);
     }
 
+    @ExceptionHandler(PaidEnrollmentException.class)
+    ResponseEntity<Object> paidEnrollment(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "paid-enrollment", "Paid Enrollment",
+                "An Enrollment granted by an Order ends only with a Refund of that Order."), request);
+    }
+
     @ExceptionHandler(EnrollmentRequiredException.class)
     ResponseEntity<Object> enrollmentRequired(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "enrollment-required", "Enrollment required",
                 "This needs an active Enrollment in the Course."), request);
+    }
+
+    @ExceptionHandler(CourseNotForSaleException.class)
+    ResponseEntity<Object> courseNotForSale(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "course-not-for-sale", "Course not for sale",
+                "Only an On sale Course can be bought."), request);
+    }
+
+    @ExceptionHandler(OrderNotFoundException.class)
+    ResponseEntity<Object> orderNotFound(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "order-not-found", "Order not found",
+                "The Student has no Order with this code."), request);
+    }
+
+    /** The line says which call failed and how, for whoever looks into it; Asaas being away is not our fault. */
+    @ExceptionHandler(PaymentUnavailableException.class)
+    ResponseEntity<Object> paymentUnavailable(PaymentUnavailableException refusal, HttpServletRequest request) {
+        log.warn("Refused {} {}: payment-unavailable; {}", request.getMethod(), request.getRequestURI(),
+                refusal.getMessage());
+        return respond(new Refusal(HttpStatus.SERVICE_UNAVAILABLE, "payment-unavailable", "Payment unavailable",
+                "The payment provider cannot be reached now. Try again in Retry-After seconds."),
+                retryAfter(refusal.retryAfter()), Map.of());
+    }
+
+    /** At ERROR: a refusal by Asaas that a retry will not fix is a fault someone has to look into. */
+    @ExceptionHandler(PaymentProviderErrorException.class)
+    ResponseEntity<Object> paymentProviderError(PaymentProviderErrorException refusal, HttpServletRequest request) {
+        log.error("Refused {} {}: payment-provider-error; {}", request.getMethod(), request.getRequestURI(),
+                refusal.getMessage());
+        return respond(new Refusal(HttpStatus.BAD_GATEWAY, "payment-provider-error", "Payment provider error",
+                "The payment provider refused the payment. It has been logged."), new HttpHeaders(), Map.of());
     }
 
     /**
@@ -308,6 +345,18 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<Object> invalidBffKey(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.FORBIDDEN, "invalid-bff-key", "Invalid BFF key",
                 "Only the AulaFlix web server calls this API, with its AulaFlix-BFF-Key."), request);
+    }
+
+    @ExceptionHandler(InvalidWebhookTokenException.class)
+    ResponseEntity<Object> invalidWebhookToken(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.FORBIDDEN, "invalid-webhook-token", "Invalid webhook token",
+                "Only Asaas posts here, with its asaas-access-token."), request);
+    }
+
+    @ExceptionHandler(WebhookBodyTooLargeException.class)
+    ResponseEntity<Object> webhookBodyTooLarge(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONTENT_TOO_LARGE, "content-too-large", "Content too large",
+                "A webhook's body is at most 256 KB."), request);
     }
 
     @ExceptionHandler(InvalidClientIpException.class)

@@ -53,6 +53,10 @@ public class EnrollmentEntity {
     @Column(name = "grant_note", length = 500, updatable = false)
     private String grantNote;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id", updatable = false)
+    private OrderEntity order;
+
     @Column(name = "ended_at")
     private Instant endedAt;
 
@@ -83,6 +87,14 @@ public class EnrollmentEntity {
         EnrollmentEntity enrollment = new EnrollmentEntity(student, course, startedAt, EnrollmentOrigin.MANUAL);
         enrollment.grantedBy = admin;
         enrollment.grantNote = note;
+        return enrollment;
+    }
+
+    /** Granted by the Order once paid, to its Student in its Course. */
+    public static EnrollmentEntity grantedByOrder(OrderEntity order, Instant startedAt) {
+        EnrollmentEntity enrollment = new EnrollmentEntity(order.getStudent(), order.getCourse(), startedAt,
+                EnrollmentOrigin.ORDER);
+        enrollment.order = order;
         return enrollment;
     }
 
@@ -131,6 +143,10 @@ public class EnrollmentEntity {
 
     public String getGrantNote() {
         return grantNote;
+    }
+
+    public OrderEntity getOrder() {
+        return order;
     }
 
     public Instant getEndedAt() {

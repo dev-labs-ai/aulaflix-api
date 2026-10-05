@@ -332,7 +332,8 @@ class OpenApiDocumentTest extends IntegrationTest {
                         "/v1/account-lookups", "/v1/accounts", "/v1/account", "/v1/sessions",
                         "/v1/sessions/current", "/v1/email-confirmations", "/v1/account/confirmation-emails",
                         "/v1/account/enrollments", "/v1/account/enrollments/{courseId}",
-                        "/v1/account/completed-lessons/{lessonId}", "/v1/password-reset-codes",
+                        "/v1/account/completed-lessons/{lessonId}", "/v1/account/lesson-visits",
+                        "/v1/account/orders", "/v1/account/orders/{code}", "/v1/password-reset-codes",
                         "/v1/password-resets");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
@@ -699,9 +700,30 @@ class OpenApiDocumentTest extends IntegrationTest {
                     "/v1/account/completed-lessons/{lessonId}": {
                       "put": {"tags": ["Learning"], "security": [{"bearer": [], "bffKey": []}]},
                       "delete": {"tags": ["Learning"], "security": [{"bearer": [], "bffKey": []}]}
+                    },
+                    "/v1/account/lesson-visits": {
+                      "post": {
+                        "tags": ["Learning"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "requestBody": {
+                          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LessonVisitRequest"}}}
+                        }
+                      }
                     }
                   }
                 }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.StudentEnrollmentList.properties").asMap()
+                .containsOnlyKeys("items", "highlightedCourseId");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.StudentEnrollment.properties").asMap()
+                .containsOnlyKeys("course", "progress", "resumeLesson");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.StudentEnrollmentDetail.properties").asMap()
+                .containsOnlyKeys("course", "progress", "resumeLesson", "completedLessonIds");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.ResumeLesson.properties").asMap()
+                .containsOnlyKeys("id", "slug", "number", "title");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.Progress.properties").asMap()
                 .containsOnlyKeys("completed", "published", "total", "percent", "standing");
@@ -779,6 +801,94 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/account/enrollments/{courseId}'].get.responses['404'].description")
                 .asString().contains("`enrollment-not-found`");
+        assertResponsesIn("bff", "/v1/account/lesson-visits", "post",
+                "204", "400", "401", "403", "404", "409", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/lesson-visits'].post.responses['404'].description")
+                .asString().contains("`lesson-not-found`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/lesson-visits'].post.responses['409'].description")
+                .asString().contains("`enrollment-required`");
+    }
+
+    @Test
+    void documentsTheStudentsOrdersWithASession() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/account/orders": {
+                      "post": {
+                        "tags": ["Orders"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "requestBody": {
+                          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrderRequest"}}}
+                        },
+                        "responses": {
+                          "200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Order"}}}},
+                          "201": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Order"}}}}
+                        }
+                      },
+                      "get": {
+                        "tags": ["Orders"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "responses": {
+                          "200": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrderList"}}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/account/orders/{code}": {
+                      "get": {
+                        "tags": ["Orders"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "responses": {
+                          "200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Order"}}}}
+                        }
+                      }
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.Order.properties").asMap()
+                .containsOnlyKeys("code", "status", "method", "course", "amountCents", "createdAt", "paidAt",
+                        "duplicatePayment", "pix");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.OrderRequest.properties").asMap()
+                .containsOnlyKeys("courseId", "method", "cpf");
+    }
+
+    @Test
+    void documentsEveryStatusEachOrderEndpointCanAnswer() {
+        assertResponsesIn("bff", "/v1/account/orders", "post",
+                "200", "201", "400", "401", "403", "409", "429", "500", "502", "503");
+        assertResponsesIn("bff", "/v1/account/orders", "get", "200", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/account/orders/{code}", "get", "200", "400", "401", "403", "404", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders'].post.responses['400'].description").asString()
+                .contains("`invalid-request`", "`required`", "`invalid-cpf`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders'].post.responses['409'].description").asString()
+                .contains("`course-not-for-sale`", "`already-enrolled`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders'].post.responses['502'].description").asString()
+                .contains("`payment-provider-error`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders'].post.responses['502'].content").asMap()
+                .containsOnlyKeys("application/problem+json");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders'].post.responses['503']").isEqualTo(Map.of(
+                        "description", "`payment-unavailable`: Asaas is down, too slow, or busy; the Order is "
+                                + "cancelled, and a new one may be placed after Retry-After seconds",
+                        "headers", Map.of("Retry-After", Map.of(
+                                "description", "Seconds to wait before trying again",
+                                "style", "simple",
+                                "schema", Map.of("type", "integer"))),
+                        "content", Map.of("application/problem+json",
+                                Map.of("schema", Map.of("$ref", "#/components/schemas/ProblemDetail")))));
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/orders/{code}'].get.responses['404'].description").asString()
+                .contains("`order-not-found`");
     }
 
     @Test
@@ -809,10 +919,39 @@ class OpenApiDocumentTest extends IntegrationTest {
     }
 
     @Test
-    void servesSwaggerUiListingTheAdminAndBffGroups() {
+    void servesSwaggerUiListingTheAdminBffAndWebhookGroups() {
         assertThat(mvc.get().uri("/swagger-ui/index.html")).hasStatusOk()
                 .hasContentTypeCompatibleWith(MediaType.TEXT_HTML);
         assertThat(mvc.get().uri("/v3/api-docs/swagger-config")).hasStatus(HttpStatus.OK)
-                .bodyJson().extractingPath("$.urls[*].name").asArray().contains("admin", "bff");
+                .bodyJson().extractingPath("$.urls[*].name").asArray().contains("admin", "bff", "webhooks");
+    }
+
+    /** Asaas calls it with its token, never with the BFF's key and the browser's IP. */
+    @Test
+    void servesTheWebhookInAGroupOfItsOwnWithAsaassToken() {
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).hasStatusOk().bodyJson()
+                .extractingPath("$.paths").asMap().containsOnlyKeys("/v1/webhooks/asaas");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "components": {
+                    "securitySchemes": {
+                      "webhookToken": {"type": "apiKey", "in": "header", "name": "asaas-access-token"}
+                    }
+                  },
+                  "paths": {
+                    "/v1/webhooks/asaas": {
+                      "post": {"tags": ["Webhooks"], "security": [{"webhookToken": []}]}
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson()
+                .doesNotHavePath("$.paths['/v1/webhooks/asaas'].post.parameters");
+        assertResponsesIn("webhooks", "/v1/webhooks/asaas", "post", "200", "401", "403", "413", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson()
+                .extractingPath("$.paths['/v1/webhooks/asaas'].post.responses['403'].description").asString()
+                .contains("`invalid-webhook-token`");
+        assertThat(mvc.get().uri("/v3/api-docs/webhooks")).bodyJson()
+                .extractingPath("$.paths['/v1/webhooks/asaas'].post.responses['413'].content").asMap()
+                .containsOnlyKeys("application/problem+json");
     }
 }

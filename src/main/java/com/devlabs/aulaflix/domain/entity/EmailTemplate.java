@@ -7,5 +7,7 @@ public enum EmailTemplate {
     /** A 6-digit code that resets or changes a Student's password. */
     VERIFICATION_CODE,
     /** The notice that a Student's password was reset or changed, so that they notice if it wasn't them. */
-    PASSWORD_CHANGED
+    PASSWORD_CHANGED,
+    /** The Student's record that an Order was paid and its Course opened. */
+    PURCHASE_CONFIRMATION
 }

@@ -49,6 +49,27 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void allowsEachStudent10PlacementsAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::checkoutPerStudentLimit)
+                .isEqualTo(new RateLimit("checkouts-per-student", 10, Duration.ofHours(1))));
+    }
+
+    @Test
+    void allowsEachClientIp30PlacementsAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::checkoutPerIpLimit)
+                .isEqualTo(new RateLimit("checkouts-per-ip", 30, Duration.ofHours(1))));
+    }
+
+    @Test
+    void allowsEveryone500PlacementsAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::checkoutLimit)
+                .isEqualTo(new RateLimit("checkouts", 500, Duration.ofHours(1))));
+    }
+
+    @Test
     void allowsEachClientIp30EmailConfirmationsAnHourByDefault() {
         application.run(context -> assertThat(context).hasNotFailed()
                 .getBean(RateLimitProperties.class).extracting(RateLimitProperties::emailConfirmationLimit)
@@ -91,6 +112,8 @@ class RateLimitPropertiesTest {
             "aulaflix.rate-limits.bff-requests.window=-1m", "aulaflix.rate-limits.bff-requests.window=999ms",
             "aulaflix.rate-limits.visitor-playback.requests=0", "aulaflix.rate-limits.visitor-playback.window=999ms",
             "aulaflix.rate-limits.look-ups-and-sign-ins.requests=0", "aulaflix.rate-limits.sign-ups.window=0s",
+            "aulaflix.rate-limits.checkouts-per-student.requests=0", "aulaflix.rate-limits.checkouts-per-ip.window=0s",
+            "aulaflix.rate-limits.checkouts.requests=0",
             "aulaflix.rate-limits.email-confirmations.requests=0",
             "aulaflix.rate-limits.password-reset-codes.requests=0", "aulaflix.rate-limits.password-resets.window=0s"})
     void refusesToStartWithALimitThatCountsNothing(String property) {

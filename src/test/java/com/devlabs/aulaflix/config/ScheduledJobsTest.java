@@ -1,9 +1,11 @@
 package com.devlabs.aulaflix.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.Duration;
 import java.util.Collection;
@@ -18,32 +20,47 @@ import org.springframework.scheduling.config.ScheduledTask;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 
 import com.devlabs.aulaflix.service.EmailOutbox;
+import com.devlabs.aulaflix.service.WebhookWorker;
 
 /**
- * The drainer runs on its own in the API, a drain-interval after the end of the drain before; never in admin mode,
- * nor where scheduling is turned off. The outbox stands in for itself: what is checked is only when it is called.
+ * The drainer and the webhook worker run on their own in the API, each its own interval after the end of its run
+ * before; never in admin mode, nor where scheduling is turned off. The jobs stand in for themselves: what is checked is
+ * only when each is called.
  */
 class ScheduledJobsTest {
 
+    private static final Duration STARTUP_RUN = Duration.ofSeconds(10);
+
     private final EmailOutbox outbox = mock(EmailOutbox.class);
+
+    private final WebhookWorker webhookWorker = mock(WebhookWorker.class);
 
     private final ApplicationContextRunner application = new ApplicationContextRunner()
             .withInitializer(new ConfigDataApplicationContextInitializer())
-            .withUserConfiguration(ScheduledJobs.class, OutboxPropertiesEnabled.class)
+            .withUserConfiguration(ScheduledJobs.class, PropertiesEnabled.class)
             .withBean(EmailOutbox.class, () -> outbox)
-            .withPropertyValues("aulaflix.outbox.drain-interval=1h");
+            .withBean(WebhookWorker.class, () -> webhookWorker)
+            .withPropertyValues("aulaflix.outbox.drain-interval=1h", "aulaflix.asaas.webhook-interval=2h",
+                    "aulaflix.asaas.api-key=key-of-the-test",
+                    "aulaflix.asaas.webhook-token=webhook-token-of-the-test-0123456");
 
     @Test
     void drainsTheOutboxWithAFixedDelay() {
         application.run(context -> {
             assertThat(context).hasNotFailed();
-            assertThat(scheduledTasks(context.getBeansOfType(ScheduledTaskHolder.class).values()))
-                    .singleElement().satisfies(scheduled -> {
-                        assertThat(scheduled.getTask()).isInstanceOfSatisfying(FixedDelayTask.class,
-                                task -> assertThat(task.getIntervalDuration()).isEqualTo(Duration.ofHours(1)));
-                        scheduled.getTask().getRunnable().run();
-                    });
-            verify(outbox, atLeastOnce()).drain();
+            runTheJobEvery(context.getBeansOfType(ScheduledTaskHolder.class).values(), Duration.ofHours(1));
+            verify(outbox).drain();
+            verifyNoInteractions(webhookWorker);
+        });
+    }
+
+    @Test
+    void processesTheWebhookEventsWithAFixedDelay() {
+        application.run(context -> {
+            assertThat(context).hasNotFailed();
+            runTheJobEvery(context.getBeansOfType(ScheduledTaskHolder.class).values(), Duration.ofHours(2));
+            verify(webhookWorker).processPending();
+            verifyNoInteractions(outbox);
         });
     }
 
@@ -59,11 +76,22 @@ class ScheduledJobsTest {
                 .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(ScheduledJobs.class));
     }
 
-    private static List<ScheduledTask> scheduledTasks(Collection<ScheduledTaskHolder> holders) {
-        return holders.stream().flatMap(holder -> holder.getScheduledTasks().stream()).toList();
+    /**
+     * Runs, once, the only job scheduled with that fixed delay. Each job first runs as the context starts; once both
+     * have, the next runs are hours away, so every call after that is this one's.
+     */
+    private void runTheJobEvery(Collection<ScheduledTaskHolder> holders, Duration interval) {
+        verify(outbox, timeout(STARTUP_RUN.toMillis())).drain();
+        verify(webhookWorker, timeout(STARTUP_RUN.toMillis())).processPending();
+        clearInvocations(outbox, webhookWorker);
+        List<ScheduledTask> tasks = holders.stream().flatMap(holder -> holder.getScheduledTasks().stream()).toList();
+        assertThat(tasks).hasSize(2).filteredOn(scheduled -> scheduled.getTask() instanceof FixedDelayTask task
+                        && task.getIntervalDuration().equals(interval))
+                .singleElement()
+                .satisfies(scheduled -> scheduled.getTask().getRunnable().run());
     }
 
-    @EnableConfigurationProperties(OutboxProperties.class)
-    static class OutboxPropertiesEnabled {
+    @EnableConfigurationProperties({OutboxProperties.class, AsaasProperties.class})
+    static class PropertiesEnabled {
     }
 }

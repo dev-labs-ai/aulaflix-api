@@ -40,11 +40,13 @@ import com.devlabs.aulaflix.service.SessionService;
 /**
  * Deny by default. Every request but the Admin's comes from the BFF and carries its key; every Admin endpoint needs an
  * Admin session, here and again in its own {@code @PreAuthorize}. The Student's own Account and session need a
- * Student's session, here and again in their {@code @PreAuthorize}, while looking up an email, signing up and signing
- * in need none, and count against the client IP's strictest limits; so does posting a confirmation link, which any
- * device may do, and so do asking for a reset code and resetting a password with it. Playback needs no session, and refuses only an
- * Admin's, here and again in its {@code @PreAuthorize}. The refusals the filters make go through the same
- * {@code @RestControllerAdvice} as every other refusal.
+ * Student's session, here and again in their {@code @PreAuthorize}, and so do their Orders, whose placement counts
+ * against the client IP's checkout limit; while looking up an email, signing up and signing in need none, and count
+ * against the client IP's strictest limits; so does posting a confirmation link, which any device may do, and so do
+ * asking for a reset code and resetting a password with it. Playback needs no session, and refuses only an
+ * Admin's, here and again in its {@code @PreAuthorize}. Asaas's webhook needs neither the key nor a session, but
+ * Asaas's token. The refusals the filters make go through the same {@code @RestControllerAdvice} as every other
+ * refusal.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -68,13 +70,17 @@ public class SecurityConfiguration {
 
     private static final String EMAIL_CONFIRMATIONS = "/v1/email-confirmations";
 
+    private static final String ORDERS = "/v1/account/orders";
+
+    private static final String WEBHOOK = "/v1/webhooks/asaas";
+
     private static final String PASSWORD_RESET_CODES = "/v1/password-reset-codes";
 
     private static final String PASSWORD_RESETS = "/v1/password-resets";
 
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
-                                       RateLimiter limiter, RateLimitProperties limits,
+                                       AsaasProperties asaas, RateLimiter limiter, RateLimitProperties limits,
                                        @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         ProblemResponses problems = new ProblemResponses(resolver);
         return http
@@ -87,12 +93,16 @@ public class SecurityConfiguration {
                 .addFilterBefore(new SessionTokenFilter(sessions, problems), AnonymousAuthenticationFilter.class)
                 .addFilterBefore(new BffRequestFilter(bffRequests(), bff.key(), limiter, limits.bffRequestLimit(),
                         resolver), SessionTokenFilter.class)
+                .addFilterBefore(new WebhookTokenFilter(PathPatternRequestMatcher.pathPattern(WEBHOOK),
+                        asaas.webhookToken(), resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(visitorPlayback(), limiter, limits.visitorPlaybackLimit(),
                         resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(LOOK_UPS, SIGN_INS), limiter,
                         limits.lookUpAndSignInLimit(), resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(SIGN_UPS), limiter, limits.signUpLimit(), resolver),
                         SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(postsTo(ORDERS), limiter, limits.checkoutPerIpLimit(),
+                        resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(EMAIL_CONFIRMATIONS), limiter,
                         limits.emailConfirmationLimit(), resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(PASSWORD_RESET_CODES), limiter,
@@ -108,6 +118,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
                         .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")
                         .requestMatchers(DOCUMENTATION).permitAll()
+                        .requestMatchers(WEBHOOK).permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
@@ -116,11 +127,14 @@ public class SecurityConfiguration {
                 .build();
     }
 
-    /** Every request but the Admin's, which reaches the API only through the SSH tunnel. */
+    /**
+     * Every request but the Admin's, which reaches the API only through the SSH tunnel, and Asaas's webhook, which the
+     * edge lets in from Asaas alone.
+     */
     private static RequestMatcher bffRequests() {
-        Stream<String> adminPaths = Stream.concat(Stream.of(ADMIN), Arrays.stream(DOCUMENTATION));
+        Stream<String> otherPaths = Stream.concat(Stream.of(ADMIN, WEBHOOK), Arrays.stream(DOCUMENTATION));
         return new NegatedRequestMatcher(new OrRequestMatcher(
-                adminPaths.<RequestMatcher>map(PathPatternRequestMatcher::pathPattern).toList()));
+                otherPaths.<RequestMatcher>map(PathPatternRequestMatcher::pathPattern).toList()));
     }
 
     /**

@@ -33,6 +33,15 @@ public record RateLimitProperties(
         Limit signUps,
         @NotNull
         @Valid
+        Limit checkoutsPerStudent,
+        @NotNull
+        @Valid
+        Limit checkoutsPerIp,
+        @NotNull
+        @Valid
+        Limit checkouts,
+        @NotNull
+        @Valid
         Limit emailConfirmations,
         @NotNull
         @Valid
@@ -59,6 +68,21 @@ public record RateLimitProperties(
     /** Every sign-up, whatever it answers, per client IP. */
     RateLimit signUpLimit() {
         return signUps.named("sign-ups");
+    }
+
+    /** Every Order placement, whatever it answers, per Student. */
+    RateLimit checkoutPerStudentLimit() {
+        return checkoutsPerStudent.named("checkouts-per-student");
+    }
+
+    /** Every Order placement, whatever it answers, per client IP. */
+    RateLimit checkoutPerIpLimit() {
+        return checkoutsPerIp.named("checkouts-per-ip");
+    }
+
+    /** Every Order placement, whatever it answers, of everyone at once. */
+    RateLimit checkoutLimit() {
+        return checkouts.named("checkouts");
     }
 
     /** Every post of a confirmation link, whatever it answers, per client IP. */
