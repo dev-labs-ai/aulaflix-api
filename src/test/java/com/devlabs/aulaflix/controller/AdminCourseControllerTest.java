@@ -412,7 +412,8 @@ class AdminCourseControllerTest extends IntegrationTest {
                         {
                           "status": "COMING_SOON",
                           "comingSoonAt": "2026-09-01T12:00:00Z",
-                          "readiness": {"onSale": ["priceCents", "maxInstallments", "freeLessonId"]}
+                          "readiness": {"onSale": ["priceCents", "maxInstallments", "freeLessonId"]},
+                          "waitlistCount": 0
                         }""");
     }
 
@@ -424,6 +425,7 @@ class AdminCourseControllerTest extends IntegrationTest {
         assertThat(get(id)).hasStatusOk().bodyJson()
                 .doesNotHavePath("$.comingSoonAt")
                 .doesNotHavePath("$.readiness")
+                .doesNotHavePath("$.waitlistCount")
                 .isLenientlyEqualTo("""
                         {"status": "ON_SALE", "onSaleAt": "2026-09-15T09:30:00Z", "freeLessonId": %d}"""
                         .formatted(freeLessonOf(id)));

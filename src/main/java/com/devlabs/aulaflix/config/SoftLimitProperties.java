@@ -25,7 +25,10 @@ public record SoftLimitProperties(
         Thresholds signUps,
         @NotNull
         @Valid
-        Thresholds passwordResetCodes) {
+        Thresholds passwordResetCodes,
+        @NotNull
+        @Valid
+        Thresholds waitlistEntries) {
 
     /** Every email look-up and sign-in, counted together, whatever they answer. */
     SoftLimit lookUpAndSignInLimit() {
@@ -40,6 +43,11 @@ public record SoftLimitProperties(
     /** Every request for a reset code, whatever it answers. */
     SoftLimit passwordResetCodeLimit() {
         return passwordResetCodes.named("password-reset-codes");
+    }
+
+    /** Every join of a Waitlist by email, whatever it answers. */
+    SoftLimit waitlistEntryLimit() {
+        return waitlistEntries.named("waitlist-entries");
     }
 
     /** The soft limits of one operation: per client IP, and for everyone at once. */

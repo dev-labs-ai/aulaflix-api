@@ -13,16 +13,21 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
+import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.IntegrationTest;
+import com.devlabs.aulaflix.StoredCourses;
 import com.devlabs.aulaflix.StudentApi;
+import com.devlabs.aulaflix.WaitlistApi;
 
 /**
  * Past a global soft limit, every client IP needs a CAPTCHA for the rest of the window, even one that never crossed
@@ -38,10 +43,14 @@ class GlobalSoftLimitTest extends IntegrationTest {
     private static final Instant BASE = Instant.now();
     private static final AtomicInteger WINDOWS = new AtomicInteger();
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @DynamicPropertySource
     static void lowerTheGlobalSoftLimits(DynamicPropertyRegistry registry) {
-        List.of("look-ups-and-sign-ins", "sign-ups", "password-reset-codes").forEach(operation ->
-                registry.add("aulaflix.soft-limits.%s.global.requests".formatted(operation), () -> GLOBAL));
+        List.of("look-ups-and-sign-ins", "sign-ups", "password-reset-codes", "waitlist-entries")
+                .forEach(operation -> registry.add("aulaflix.soft-limits.%s.global.requests".formatted(operation),
+                        () -> GLOBAL));
     }
 
     /**
@@ -92,6 +101,25 @@ class GlobalSoftLimitTest extends IntegrationTest {
         assertThat(new StudentApi(new BffApi(mvc).solvingCaptchas()).requestResetCode(newEmail()))
                 .hasStatus(HttpStatus.NO_CONTENT);
         assertThat(globalTrips(output)).singleElement().asString().contains("password-reset-codes");
+    }
+
+    @Test
+    void asksEveryIpForACaptchaPastTheGlobalSoftLimitOnWaitlistJoinsByEmail(CapturedOutput output) {
+        long course = new StoredCourses(jdbc).insertComingSoon(AdminCourses.newSlug(), clock.instant());
+        assertThat(joinsFromFreshIps(GLOBAL, course)).containsOnly(HttpStatus.NO_CONTENT.value());
+
+        assertThat(joinsFromFreshIps(3, course)).containsOnly(HttpStatus.TOO_MANY_REQUESTS.value());
+        assertThat(new WaitlistApi(new BffApi(mvc).solvingCaptchas()).join(course, newEmail()))
+                .hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(globalTrips(output)).singleElement().asString().contains("waitlist-entries");
+    }
+
+    /** The statuses of joins of the Course's Waitlist by new emails, each from an IP of its own, without a token. */
+    private List<Integer> joinsFromFreshIps(int requests, long course) {
+        return IntStream.range(0, requests)
+                .mapToObj(any -> new WaitlistApi(new BffApi(mvc)).join(course, newEmail()))
+                .map(result -> result.getResponse().getStatus())
+                .toList();
     }
 
     @Test

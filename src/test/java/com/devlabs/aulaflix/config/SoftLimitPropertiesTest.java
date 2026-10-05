@@ -51,6 +51,15 @@ class SoftLimitPropertiesTest {
     }
 
     @Test
+    void asksForACaptchaPast3WaitlistJoinsByEmailPerIpOr60FromEveryoneInAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(SoftLimitProperties.class).extracting(SoftLimitProperties::waitlistEntryLimit)
+                .isEqualTo(new SoftLimit("waitlist-entries",
+                        new RateLimit("soft waitlist-entries", 3, Duration.ofHours(1)),
+                        new RateLimit("soft waitlist-entries", 60, Duration.ofHours(1)))));
+    }
+
+    @Test
     void takesOtherLimitsFromConfiguration() {
         application.withPropertyValues("aulaflix.soft-limits.sign-ups.per-ip.requests=7",
                         "aulaflix.soft-limits.sign-ups.per-ip.window=10m",
@@ -68,7 +77,9 @@ class SoftLimitPropertiesTest {
             "aulaflix.soft-limits.look-ups-and-sign-ins.global.window=999ms",
             "aulaflix.soft-limits.sign-ups.per-ip.window=0s", "aulaflix.soft-limits.sign-ups.global.requests=0",
             "aulaflix.soft-limits.password-reset-codes.per-ip.requests=-1",
-            "aulaflix.soft-limits.password-reset-codes.global.window=0s"})
+            "aulaflix.soft-limits.password-reset-codes.global.window=0s",
+            "aulaflix.soft-limits.waitlist-entries.per-ip.requests=0",
+            "aulaflix.soft-limits.waitlist-entries.global.window=999ms"})
     void refusesToStartWithALimitThatCountsNothing(String property) {
         application.withPropertyValues(property).run(context -> assertThat(context).hasFailed());
     }

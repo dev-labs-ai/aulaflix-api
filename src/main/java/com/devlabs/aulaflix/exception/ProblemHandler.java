@@ -297,6 +297,18 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "This needs an active Enrollment in the Course."), request);
     }
 
+    @ExceptionHandler(WaitlistClosedException.class)
+    ResponseEntity<Object> waitlistClosed(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "waitlist-closed", "Waitlist closed",
+                "Only a Coming soon Course takes Waitlist entries."), request);
+    }
+
+    @ExceptionHandler(NotOnWaitlistException.class)
+    ResponseEntity<Object> notOnWaitlist(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.NOT_FOUND, "not-on-waitlist", "Not on the Waitlist",
+                "No entry of this Course's Waitlist holds the Account's email."), request);
+    }
+
     @ExceptionHandler(CourseNotForSaleException.class)
     ResponseEntity<Object> courseNotForSale(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "course-not-for-sale", "Course not for sale",
