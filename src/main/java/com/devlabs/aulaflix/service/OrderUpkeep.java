@@ -44,6 +44,18 @@ class OrderUpkeep {
         return orders.findAwaitingWithChargePlacedBy(before).stream().map(OrderUpkeep::due).toList();
     }
 
+    /** The paid Orders whose charge was last re-read, or, never re-read, paid, by the moment given. */
+    @Transactional(readOnly = true)
+    List<DueOrder> paidUncheckedSince(Instant before) {
+        return orders.findPaidUncheckedSince(before).stream().map(OrderUpkeep::due).toList();
+    }
+
+    /** Records that reconciliation re-read the paid Order's charge at the moment given. */
+    @Transactional
+    void chargeChecked(DueOrder due, Instant at) {
+        orders.chargeChecked(due.id(), at);
+    }
+
     /** The cancelled Orders placed by the moment given that may have charges left at Asaas, the oldest first. */
     @Transactional(readOnly = true)
     List<DueOrder> withChargesToDeleteSince(Instant before) {

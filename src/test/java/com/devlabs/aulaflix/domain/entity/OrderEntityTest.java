@@ -13,8 +13,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 import com.devlabs.aulaflix.domain.OrderStatus;
 
 /**
- * A Refund moves an Order only forward: only a paid Order starts refunding, and only a refunding one becomes refunded.
- * Whatever moved the Order on meanwhile, a late refund or a late report of one leaves it, and its audit, as it is.
+ * A Refund or a Reversal moves an Order only forward: only a paid Order starts refunding or is reversed, and only a
+ * refunding one becomes refunded. Whatever moved the Order on meanwhile, a late refund or a late report of one leaves
+ * it, and its audit, as it is.
  */
 class OrderEntityTest {
 
@@ -61,6 +62,28 @@ class OrderEntityTest {
         assertThat(order.refunded(LATER.plusSeconds(60))).isTrue();
         assertThat(order.getStatus()).isEqualTo(OrderStatus.REFUNDED);
         assertThat(order.getRefundedAt()).isEqualTo(LATER.plusSeconds(60));
+    }
+
+    @Test
+    void aPaidOrderIsReversedOnce() {
+        OrderEntity order = orderIn(OrderStatus.PAID);
+
+        assertThat(order.reverse()).isTrue();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.REVERSED);
+        assertThat(order.reverse()).isFalse();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.REVERSED);
+    }
+
+    /** A Reversal undoes a payment: an Order never paid has none, and a refunding one's money is going back already. */
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"AWAITING_PAYMENT", "EXPIRED", "CANCELLED", "REFUNDING",
+            "REFUNDED"})
+    void reversesOnlyAPaidOrder(OrderStatus status) {
+        OrderEntity order = orderIn(status);
+
+        assertThat(order.reverse()).isFalse();
+
+        assertThat(order.getStatus()).isEqualTo(status);
     }
 
     /** An Order brought to the state the way the API brings one there. */

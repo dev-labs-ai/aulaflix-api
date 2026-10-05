@@ -220,6 +220,20 @@ public final class Asaas {
                 .formatted(chargeId, value, value, externalReference, refundStatus, value)));
     }
 
+    /**
+     * Answers every read of the charge as Asaas shows it after money went back: in the status, with whatever else the
+     * charge then holds, given as JSON members, such as its {@code refunds} or its {@code chargeback}, or nothing.
+     */
+    public void chargeShows(String chargeId, String status, int valueCents, String externalReference,
+                            String members) {
+        BigDecimal value = BigDecimal.valueOf(valueCents, 2);
+        answerChargeReadsWith(chargeId, okJson("""
+                {"object": "payment", "id": "%s", "customer": "cus_000000000001", "billingType": "PIX",
+                 "status": "%s", "value": %s, "netValue": %s, "externalReference": "%s", "deleted": false%s}"""
+                .formatted(chargeId, status, value, value, externalReference,
+                        members.isEmpty() ? "" : ", " + members)));
+    }
+
     /** Answers every read of the charge this way: with a fault, an error status, too late, … */
     public void answerChargeReadsWith(String chargeId, ResponseDefinitionBuilder answer) {
         server.stubFor(get(urlPathEqualTo("/v3/payments/" + chargeId)).willReturn(answer));

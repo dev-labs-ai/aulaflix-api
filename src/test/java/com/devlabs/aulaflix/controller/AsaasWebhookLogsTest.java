@@ -196,6 +196,46 @@ class AsaasWebhookLogsTest extends IntegrationTest {
                 "WARN .*Left webhook event \\d+ and the rest pending: Asaas failed reading a charge");
     }
 
+    /** Money going back is logged by Order code, with the reason the Enrollment ended, never with the Student's email. */
+    @Test
+    void logsMoneyGoingBackByItsOrderWithoutTheEmail(CapturedOutput output) {
+        String email = StudentApi.newEmail();
+        String refunded = paid(email);
+        asaas.chargeIsRefunded(Asaas.chargeOf(refunded), "DONE", PIX_PRICE_CENTS, refunded);
+        String chargedBack = paid(StudentApi.newEmail());
+        asaas.chargeShows(Asaas.chargeOf(chargedBack), "CHARGEBACK_REQUESTED", PIX_PRICE_CENTS, chargedBack, "");
+        String blocked = paid(StudentApi.newEmail());
+        asaas.chargeShows(Asaas.chargeOf(blocked), "REFUNDED", PIX_PRICE_CENTS, blocked, "");
+
+        for (String code : new String[] {refunded, chargedBack, blocked}) {
+            webhooks.deliver(paymentEvent(newEventId(), "PAYMENT_REFUNDED", Asaas.chargeOf(code), "REFUNDED",
+                    PIX_PRICE_CENTS, code));
+        }
+        worker.processPending();
+        new StoredOutboxEmails(jdbc).discardPending();
+
+        assertThat(output.getAll())
+                .contains("Order %s is refunding: its charge %s shows a refund the API did not ask for"
+                                .formatted(refunded, Asaas.chargeOf(refunded)),
+                        "Order %s was refunded".formatted(refunded),
+                        "Order %s was reversed by CHARGEBACK".formatted(chargedBack),
+                        "Order %s was reversed by PIX_BLOCK_UPHELD".formatted(blocked))
+                .containsPattern("Order %s ended Enrollment \\d+ with REFUND".formatted(refunded))
+                .containsPattern("Order %s ended Enrollment \\d+ with CHARGEBACK".formatted(chargedBack))
+                .containsPattern("Order %s ended Enrollment \\d+ with PIX_BLOCK_UPHELD".formatted(blocked))
+                .doesNotContain(email);
+    }
+
+    /** A Pix Order the Student with the email placed, paid: its webhook came, and the worker ran. */
+    private String paid(String email) {
+        String code = signedUp(email).placedPix(course, Cpfs.newCpf());
+        asaas.chargeIs(Asaas.chargeOf(code), "CONFIRMED", PIX_PRICE_CENTS, code, false);
+        webhooks.deliver(paymentEvent(newEventId(), "PAYMENT_CONFIRMED", Asaas.chargeOf(code), "CONFIRMED",
+                PIX_PRICE_CENTS, code));
+        worker.processPending();
+        return code;
+    }
+
     private StudentOrders signedUp(String email) {
         BffApi bff = new BffApi(mvc);
         return new StudentOrders(bff, new StudentApi(bff).signedUp(email, PASSWORD));

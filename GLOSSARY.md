@@ -76,6 +76,11 @@ The reversal of an Order's payment at the Student's request, as the 7-day guaran
 Enrollment it granted.
 _Avoid_: chargeback, cancellation
 
+**Reversal**:
+The loss of an Order's payment that nobody at AulaFlix chose: a chargeback opened by the cardholder's bank, or a Pix
+cautionary block upheld. It ends the Enrollment the Order granted; access comes back only through a new Order or an Admin's grant.
+_Avoid_: refund, cancellation
+
 **Duplicate payment**:
 The payment of an Order that granted no Enrollment because the Student already had an active one for that Course;
 an Admin refunds it by hand.

@@ -7,7 +7,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -30,6 +32,11 @@ public class AsaasGateway {
     private static final String PIX = "PIX";
     private static final int TOO_MANY_REQUESTS = 429;
     private static final String DONE = "DONE";
+    private static final String CANCELLED = "CANCELLED";
+    private static final String REFUNDED = "REFUNDED";
+    private static final Set<String> REFUND_STATUSES = Set.of("REFUND_REQUESTED", "REFUND_IN_PROGRESS");
+    private static final Set<String> CHARGEBACK_STATUSES = Set.of("CHARGEBACK_REQUESTED", "CHARGEBACK_DISPUTE",
+            "AWAITING_CHARGEBACK_REVERSAL");
 
     /** Asaas takes an item's name of up to 30 characters. */
     private static final int ITEM_NAME_MAX_CHARACTERS = 30;
@@ -284,15 +291,17 @@ public class AsaasGateway {
     /** A charge as Asaas words it; an installment of a card sale names its plan in {@code installment}. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record ChargeBody(String id, String status, BigDecimal value, String externalReference, boolean deleted,
-                              String checkoutSession, String installment, List<Refund> refunds) {
+                              String checkoutSession, String installment, List<Refund> refunds,
+                              Chargeback chargeback) {
 
         Charge single() {
-            return new Charge(id, status, value, externalReference, deleted, checkoutSession, null, 1, refunds);
+            return new Charge(id, status, value, externalReference, deleted, checkoutSession, null, 1, refunds,
+                    chargeback);
         }
 
         Charge inPlan(InstallmentPlan plan) {
             return new Charge(id, status, plan.value(), externalReference, deleted, checkoutSession, installment,
-                    plan.installmentCount(), refunds);
+                    plan.installmentCount(), refunds, chargeback);
         }
     }
 
@@ -306,20 +315,57 @@ public class AsaasGateway {
      * {@code AWAITING_RISK_ANALYSIS}, …); the {@code value} in reais of the sale it is part of, which is its own unless
      * it is one of a card sale's {@code installments}, then its {@code installment} plan's whole; the
      * {@code externalReference} it was made under, an Order's code, which a Checkout's charges may lack; whether it was
-     * deleted; the {@code checkoutSession}, the Checkout its payer paid on, if any; and its {@code refunds}.
+     * deleted; the {@code checkoutSession}, the Checkout its payer paid on, if any; its {@code refunds}; and its
+     * {@code chargeback}, once one was opened.
      */
     public record Charge(String id, String status, BigDecimal value, String externalReference, boolean deleted,
-                         String checkoutSession, String installment, int installments, List<Refund> refunds) {
+                         String checkoutSession, String installment, int installments, List<Refund> refunds,
+                         Chargeback chargeback) {
 
         /** A card payment held for Asaas's manual risk analysis, which neither pays nor declines it yet. */
         public boolean awaitingRiskAnalysis() {
             return "AWAITING_RISK_ANALYSIS".equals(status);
         }
 
-        /** Whether a refund of the charge is done: until then, the money has not left. */
-        public boolean refundDone() {
-            return refunds != null && refunds.stream().anyMatch(refund -> DONE.equals(refund.status()));
+        /**
+         * Whether money went back to the payer, or is going: a refund, whoever asked for it; a chargeback; or the
+         * charge refunded with no refund of its own, as Asaas shows a Pix whose cautionary block was upheld.
+         */
+        public boolean moneyBack() {
+            return chargedBack() || refundRequested() || REFUNDED.equals(status);
         }
+
+        /**
+         * Whether a chargeback was opened: from its request, through its dispute, even one won, until the money comes
+         * back; or the charge was refunded with a chargeback, as a lost dispute leaves it.
+         */
+        public boolean chargedBack() {
+            return CHARGEBACK_STATUSES.contains(status) || REFUNDED.equals(status) && chargeback != null;
+        }
+
+        /** Whether a refund was asked of Asaas, by anyone: the charge says so, or lists one Asaas did not cancel. */
+        public boolean refundRequested() {
+            return REFUND_STATUSES.contains(status) || liveRefunds().findAny().isPresent();
+        }
+
+        /**
+         * Whether a refund of the charge is done: until then, the money has not left. A charge refunded with no refund
+         * listed has left too.
+         */
+        public boolean refundDone() {
+            return liveRefunds().anyMatch(refund -> DONE.equals(refund.status()))
+                    || REFUNDED.equals(status) && liveRefunds().findAny().isEmpty();
+        }
+
+        private Stream<Refund> liveRefunds() {
+            return refunds == null ? Stream.empty()
+                    : refunds.stream().filter(refund -> !CANCELLED.equals(refund.status()));
+        }
+    }
+
+    /** A charge's chargeback, in its own {@code status}: {@code REQUESTED}, {@code IN_DISPUTE}, … */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Chargeback(String status) {
     }
 
     /**

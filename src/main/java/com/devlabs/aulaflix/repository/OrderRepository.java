@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -92,6 +93,22 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             select o from OrderEntity o join fetch o.student join fetch o.course left join fetch o.refundRequestedBy
             where o.id = :id""")
     Optional<OrderEntity> findWithPartiesById(@Param("id") long id);
+
+    /**
+     * The paid Orders whose charge was last re-read, or, never re-read, paid, by the moment given, the longest
+     * unchecked first.
+     */
+    @Query("""
+            select o from OrderEntity o
+            where o.status = com.devlabs.aulaflix.domain.OrderStatus.PAID
+              and coalesce(o.chargeCheckedAt, o.paidAt) <= :before
+            order by coalesce(o.chargeCheckedAt, o.paidAt), o.id""")
+    List<OrderEntity> findPaidUncheckedSince(@Param("before") Instant before);
+
+    /** Records when reconciliation re-read the Order's charge, touching no other column. */
+    @Modifying
+    @Query("update OrderEntity o set o.chargeCheckedAt = :at where o.id = :id")
+    void chargeChecked(@Param("id") long id, @Param("at") Instant at);
 
     /** The Orders being refunded, which reconciliation follows until Asaas reports their refund done. */
     @Query("""

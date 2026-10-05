@@ -31,9 +31,14 @@ public class AsaasWebhookInbox {
     /** 256 KB: the edge's own limit, so that a body the edge lets through is never refused here. */
     private static final int MAX_BODY_BYTES = 256 * 1024;
 
-    /** The events whose charge the worker re-reads; any other is stored as ignored. */
+    /**
+     * The events whose charge the worker re-reads: a payment, a card's risk analysis, and money going back by a
+     * refund, whoever made it, or a chargeback, at any step of its dispute. Any other is stored as ignored.
+     */
     private static final Set<String> HANDLED_EVENTS = Set.of("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED",
-            WebhookWorker.RISK_ANALYSIS_REJECTION, "PAYMENT_APPROVED_BY_RISK_ANALYSIS");
+            WebhookWorker.RISK_ANALYSIS_REJECTION, "PAYMENT_APPROVED_BY_RISK_ANALYSIS",
+            "PAYMENT_REFUNDED", "PAYMENT_PARTIALLY_REFUNDED", "PAYMENT_REFUND_IN_PROGRESS",
+            "PAYMENT_CHARGEBACK_REQUESTED", "PAYMENT_CHARGEBACK_DISPUTE", "PAYMENT_AWAITING_CHARGEBACK_REVERSAL");
 
     /** The events whose Checkout's Order the worker expires, once it re-read the Checkout's charges. */
     private static final Set<String> HANDLED_CHECKOUT_EVENTS = Set.of("CHECKOUT_EXPIRED");

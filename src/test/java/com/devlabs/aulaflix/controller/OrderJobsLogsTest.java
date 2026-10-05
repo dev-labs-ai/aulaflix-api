@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -58,6 +59,9 @@ class OrderJobsLogsTest extends IntegrationTest {
 
     @Autowired
     private OrderReconciliation reconciliation;
+
+    @Value("${aulaflix.asaas.paid-recheck-interval}")
+    private Duration paidRecheckInterval;
 
     private long course;
 
@@ -124,6 +128,21 @@ class OrderJobsLogsTest extends IntegrationTest {
                         + " and the rest to expire on the next run: Asaas failed reading a charge: HTTP 500")
                 .containsPattern("ERROR .*Expiring Order " + refused
                         + " without its charge: Asaas refused reading a charge: HTTP 404 \\[invalid_payment]");
+    }
+
+    @Test
+    void logsAPaidOrdersReReadAsaasRefusesAtErrorWithWhatAsaasSaid(CapturedOutput output) {
+        String paid = orders.placedPix(course, cpf);
+        asaas.chargeIs(Asaas.chargeOf(paid), "CONFIRMED", PIX_PRICE_CENTS, paid, false);
+        clock.set(clock.instant().plus(Duration.ofMinutes(5)));
+        reconciliation.reconcile();
+        asaas.answerNextChargeReadWith(Asaas.chargeOf(paid), Asaas.error(404, "invalid_payment"));
+        clock.set(clock.instant().plus(paidRecheckInterval));
+
+        reconciliation.reconcile();
+
+        assertThat(output.getAll()).containsPattern("ERROR .*Could not re-read the charge of paid Order " + paid
+                + ": Asaas refused reading a charge: HTTP 404 \\[invalid_payment]");
     }
 
     private long otherCourse() {
