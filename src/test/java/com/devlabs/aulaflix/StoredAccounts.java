@@ -2,6 +2,7 @@ package com.devlabs.aulaflix;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,6 +45,11 @@ public final class StoredAccounts {
                         values (?, ?, 'Bia', ?, 'STUDENT', now())""",
                 id, email, BCRYPT_PREFIX + new BCryptPasswordEncoder().encode(password));
         return id;
+    }
+
+    /** The email of every Admin Account, in alphabetical order. */
+    public List<String> adminEmails() {
+        return jdbc.queryForList("select email from accounts where role = 'ADMIN' order by email", String.class);
     }
 
     public long count() {

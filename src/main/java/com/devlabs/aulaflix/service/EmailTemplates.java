@@ -55,6 +55,32 @@ public class EmailTemplates {
                 """.formatted(name, orderCode, reais(amountCents), courseTitle, webBase, courseSlug), Map.of());
     }
 
+    /**
+     * An Admin's alert that the Order was a Duplicate payment: paid while its Student already had the Course, so it
+     * opened nothing, and an Admin refunds it by hand. It names the Order, never the Student, whom the Order's read
+     * shows.
+     */
+    public OutboundEmail duplicatePaymentAlert(String recipient, String name, String orderCode, int amountCents,
+                                               String courseTitle) {
+        return new OutboundEmail(EmailTemplate.DUPLICATE_PAYMENT_ALERT, recipient,
+                "Pagamento duplicado: pedido " + orderCode, """
+                Olá, %s!
+
+                O pedido %s, de %s, do curso %s, foi pago, mas o aluno já tinha acesso ao curso. O pedido não \
+                liberou nada: é um pagamento duplicado, que precisa ser reembolsado.
+
+                Para ver o pedido:
+
+                GET /v1/admin/orders/%s
+
+                Para reembolsá-lo:
+
+                POST /v1/admin/orders/%s/refund
+
+                Equipe AulaFlix
+                """.formatted(name, orderCode, reais(amountCents), courseTitle, orderCode, orderCode), Map.of());
+    }
+
     /** As Brazil writes money: {@code R$ 1.497,30}. */
     private static String reais(int cents) {
         return "R$ %s,%02d".formatted(String.format(BRAZIL, "%,d", cents / 100), cents % 100);

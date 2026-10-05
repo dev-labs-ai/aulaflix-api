@@ -14,14 +14,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.devlabs.aulaflix.AdminApi;
 import com.devlabs.aulaflix.AdminCourses;
+import com.devlabs.aulaflix.AdminEnrollments;
 import com.devlabs.aulaflix.Asaas;
 import com.devlabs.aulaflix.AsaasWebhooks;
 import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.Cpfs;
 import com.devlabs.aulaflix.IntegrationTest;
+import com.devlabs.aulaflix.StoredOutboxEmails;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.StudentOrders;
@@ -31,8 +34,8 @@ import com.devlabs.aulaflix.service.WebhookWorker;
 
 /**
  * What the webhook leaves in the log: the event ids, the charges and the Orders, never the token, a body, nor the
- * Student's email. A body that is no event is a WARN, and so is a re-read that contradicts its Order; a re-read Asaas
- * refuses is an ERROR, with what Asaas said.
+ * Student's email. A body that is no event is a WARN, and so are a re-read that contradicts its Order and a Duplicate
+ * payment; a re-read Asaas refuses is an ERROR, with what Asaas said.
  */
 @ExtendWith(OutputCaptureExtension.class)
 class AsaasWebhookLogsTest extends IntegrationTest {
@@ -55,16 +58,23 @@ class AsaasWebhookLogsTest extends IntegrationTest {
     @Autowired
     private EmailOutbox outbox;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    private String adminEmail;
+
+    private String adminToken;
+
     private long course;
 
     private AsaasWebhooks webhooks;
 
     @BeforeEach
     void putACourseOnSale() {
-        String email = "admin-" + UUID.randomUUID() + "@aulaflix.com.br";
-        accounts.createAdmin(email, "Ana", PASSWORD);
-        course = new AdminCourses(mvc, new AdminApi(mvc).sessionToken(email, PASSWORD), storedVideos)
-                .onSale(newSlug());
+        adminEmail = "admin-" + UUID.randomUUID() + "@aulaflix.com.br";
+        accounts.createAdmin(adminEmail, "Ana", PASSWORD);
+        adminToken = new AdminApi(mvc).sessionToken(adminEmail, PASSWORD);
+        course = new AdminCourses(mvc, adminToken, storedVideos).onSale(newSlug());
         webhooks = new AsaasWebhooks(mvc);
     }
 
@@ -93,6 +103,29 @@ class AsaasWebhookLogsTest extends IntegrationTest {
                         "Order %s was paid".formatted(code))
                 .containsPattern("Order %s granted Enrollment \\d+ to Student \\d+ in Course %d".formatted(code, course))
                 .doesNotContain(Asaas.WEBHOOK_TOKEN, marker, email);
+    }
+
+    /**
+     * The alert goes to every Admin; the log names the Order and the Student by id, never an Admin's email. The alerts
+     * go unsent: they would go to every Admin the whole suite has made.
+     */
+    @Test
+    void logsADuplicatePaymentAtWarnWithoutAnyEmail(CapturedOutput output) {
+        String email = StudentApi.newEmail();
+        String code = signedUp(email).placedPix(course, Cpfs.newCpf());
+        new AdminEnrollments(mvc, adminToken).granted(email, course);
+        asaas.chargeIs(Asaas.chargeOf(code), "CONFIRMED", PIX_PRICE_CENTS, code, false);
+
+        webhooks.deliver(paymentEvent(newEventId(), "PAYMENT_CONFIRMED", Asaas.chargeOf(code), "CONFIRMED",
+                PIX_PRICE_CENTS, code));
+        worker.processPending();
+        new StoredOutboxEmails(jdbc).discardPending();
+
+        assertThat(output.getAll())
+                .containsPattern("WARN .*Order %s is a Duplicate payment: Student \\d+ already has Course %d"
+                        .formatted(code, course))
+                .contains("(DUPLICATE_PAYMENT_ALERT)")
+                .doesNotContain(email, adminEmail);
     }
 
     @Test

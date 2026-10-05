@@ -1,5 +1,6 @@
 package com.devlabs.aulaflix.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -17,6 +18,8 @@ public interface AccountRepository extends JpaRepository<AccountEntity, Long> {
     boolean existsByEmail(String email);
 
     Optional<AccountEntity> findByEmailAndRole(String email, Role role);
+
+    List<AccountEntity> findByRoleOrderById(Role role);
 
     /** Holds the row's lock until the transaction ends, so that one Account's requests of a kind go one at a time. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

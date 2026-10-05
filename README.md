@@ -299,7 +299,9 @@ acts on that answer, never on the event's body. The charge must be the Order's, 
 reference and for its amount, or the event is `UNPROCESSABLE`, with a `WARN`; a charge that is not `CONFIRMED` or
 `RECEIVED` grants nothing. A paid charge makes the Order `PAID`, with `paidAt`, and grants one Enrollment whose origin
 is the Order, however many events arrive, and queues the purchase confirmation email. A Student who already has the
-Course keeps the Enrollment they had: the Order is `PAID` with `duplicatePayment: true` and grants nothing. While
+Course keeps the Enrollment they had, granted by hand or by another Order: this one is a Duplicate payment, `PAID`
+with `duplicatePayment: true` in the Student's list and read, and grants nothing. Every Admin is emailed the
+Duplicate payment alert, once, however many events arrive; it names the Order's code, to refund it by hand. While
 Asaas cannot be reached the events wait for the next run; a re-read Asaas refuses is logged at ERROR, and the event is
 `UNPROCESSABLE`.
 
