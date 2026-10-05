@@ -83,6 +83,19 @@ public final class StudentApi {
                 .exchange();
     }
 
+    public MvcTestResult confirmEmail(String confirmationToken) {
+        return bff.post("/v1/email-confirmations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("token", confirmationToken)))
+                .exchange();
+    }
+
+    public MvcTestResult resendConfirmation(String token) {
+        return bff.post("/v1/account/confirmation-emails")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .exchange();
+    }
+
     private static String json(Map<String, String> fields) {
         return JsonMapper.shared().writeValueAsString(fields);
     }

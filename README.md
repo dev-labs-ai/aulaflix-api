@@ -21,7 +21,7 @@ for key in read-only read-write; do
 done
 # …and AIStor Free's license, downloaded from your MinIO account, as secrets/minio.license
 
-docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000
+docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000, Mailpit (below)
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
@@ -33,6 +33,9 @@ the tests and in production. On every `up`, `storage-init` creates the private `
 users: a read-only one, which signs playback, and a read-write one, which signs uploads and serves the API's own reads
 and deletes. Running it again changes nothing. Only `storage` and `storage-init` hold the root credentials, and the
 console is not published.
+
+Mailpit catches every email the API sends locally: its SMTP server listens on 127.0.0.1:1025, without TLS, which is
+where the default `spring.mail.*` points, and its inbox is at <http://localhost:8025>.
 
 ## Creating an Admin
 
@@ -161,10 +164,37 @@ an email within 15 minutes block it for 15 minutes, with a counter apart from th
 and sign-in together get 60 requests an hour, and sign-up 10 a day, whatever they answer
 (`aulaflix.rate-limits.look-ups-and-sign-ins.*`, `aulaflix.rate-limits.sign-ups.*`).
 
+Sign-up queues the confirmation link, which is also the welcome email: `{webBase}/confirmar-email#<token>`, where
+`webBase` is `aulaflix.web.base-url`. The web's page posts the token to `POST /v1/email-confirmations` `{ token }`,
+without a session, which answers 204 and signs no one in; a second click still answers 204, until the link expires 72
+hours after it was sent. An unknown, expired or voided link gets 400 `invalid-confirmation-link`, and each IP gets 30
+posts an hour (`aulaflix.rate-limits.email-confirmations.*`). `POST /v1/account/confirmation-emails`, with the
+Student's session, sends a new link and voids the earlier ones: 60 seconds after the latest link at the soonest, and at
+most 5 times within 24 hours, past which it answers 429 with `Retry-After`; an email already confirmed gets 409
+`email-already-confirmed`. `GET /v1/account` shows `emailConfirmed`. Nothing is gated on it.
+
+## Emails
+
+Every email goes through the outbox (`outbox_emails`): it is rendered and queued in the transaction of what it tells
+of, so a request never waits on SMTP, and the drainer sends it later. The drainer runs `aulaflix.outbox.drain-interval`
+after the end of the drain before, and starts at most `aulaflix.outbox.send-rate.emails` sends within any
+`aulaflix.outbox.send-rate.per`, a failed one included; production keeps that below the SES account's maximum. An
+email the server fails is tried again a minute later, then twice as long after each failure, up to an hour, and is
+never given up on; its `attempts` count every try. Admin mode runs no drainer. Every email comes from
+`aulaflix.outbox.from`, `AulaFlix <contato@aulaflix.com.br>`.
+
+SMTP is Spring's `spring.mail.*`, with timeouts that stop a silent server from holding the drainer. Locally it is
+Mailpit, without TLS. Production points `spring.mail.host` at `email-smtp.sa-east-1.amazonaws.com`, port 587, with
+the SES SMTP credentials as the secret files `spring.mail.username` and `spring.mail.password`, and requires STARTTLS:
+`spring.mail.properties.mail.smtp.auth`, `….starttls.enable` and `….starttls.required` set to `true`. SES's ports 465
+and 2465 take `spring.mail.ssl.enabled=true` instead.
+
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from
-`secrets/minio.license`, which CI writes there from a secret. HIBP is played by WireMock, in the tests' JVM. `./mvnw verify` also runs the `*IT` tests, which make the
+`secrets/minio.license`, which CI writes there from a secret. HIBP is played by WireMock, in the tests' JVM. Mailpit runs in Testcontainers too, behind a relay in the tests' JVM
+that a test can take down or silence, and the tests read what it received through its REST API. No job runs on its
+own in the tests: a test drains the outbox itself, once, synchronously. `./mvnw verify` also runs the `*IT` tests, which make the
 signed uploads and playback requests over real HTTP. Mutation testing runs with
 `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`, and its report lands in `target/pit-reports/`. It
 mutates the `command`, `config`, `exception` and `service` packages. To check one slice, name the classes it changed:

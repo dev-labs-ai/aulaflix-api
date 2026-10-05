@@ -41,7 +41,8 @@ import com.devlabs.aulaflix.service.SessionService;
  * Deny by default. Every request but the Admin's comes from the BFF and carries its key; every Admin endpoint needs an
  * Admin session, here and again in its own {@code @PreAuthorize}. The Student's own Account and session need a
  * Student's session, here and again in their {@code @PreAuthorize}, while looking up an email, signing up and signing
- * in need none, and count against the client IP's strictest limits. Playback needs no session, and refuses only an
+ * in need none, and count against the client IP's strictest limits; so does posting a confirmation link, which any
+ * device may do. Playback needs no session, and refuses only an
  * Admin's, here and again in its {@code @PreAuthorize}. The refusals the filters make go through the same
  * {@code @RestControllerAdvice} as every other refusal.
  */
@@ -65,6 +66,8 @@ public class SecurityConfiguration {
 
     private static final String SIGN_INS = "/v1/sessions";
 
+    private static final String EMAIL_CONFIRMATIONS = "/v1/email-confirmations";
+
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
                                        RateLimiter limiter, RateLimitProperties limits,
@@ -86,11 +89,13 @@ public class SecurityConfiguration {
                         limits.lookUpAndSignInLimit(), resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(SIGN_UPS), limiter, limits.signUpLimit(), resolver),
                         SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(postsTo(EMAIL_CONFIRMATIONS), limiter,
+                        limits.emailConfirmationLimit(), resolver), SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS).permitAll()
-                        .requestMatchers("/v1/account", "/v1/sessions/current").hasRole("STUDENT")
+                        .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS, EMAIL_CONFIRMATIONS).permitAll()
+                        .requestMatchers("/v1/account", "/v1/account/**", "/v1/sessions/current").hasRole("STUDENT")
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
                         .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")
                         .requestMatchers(DOCUMENTATION).permitAll()

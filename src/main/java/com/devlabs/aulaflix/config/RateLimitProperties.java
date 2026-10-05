@@ -30,7 +30,10 @@ public record RateLimitProperties(
         Limit lookUpsAndSignIns,
         @NotNull
         @Valid
-        Limit signUps) {
+        Limit signUps,
+        @NotNull
+        @Valid
+        Limit emailConfirmations) {
 
     /** Every BFF request, whatever it asks for, per client IP. */
     RateLimit bffRequestLimit() {
@@ -50,6 +53,11 @@ public record RateLimitProperties(
     /** Every sign-up, whatever it answers, per client IP. */
     RateLimit signUpLimit() {
         return signUps.named("sign-ups");
+    }
+
+    /** Every post of a confirmation link, whatever it answers, per client IP. */
+    RateLimit emailConfirmationLimit() {
+        return emailConfirmations.named("email-confirmations");
     }
 
     /** At most {@code requests} per {@code window}, a window being at least a second. */

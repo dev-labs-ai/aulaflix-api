@@ -86,4 +86,11 @@ public class AccountEntity {
     public Instant getEmailConfirmedAt() {
         return emailConfirmedAt;
     }
+
+    /** Records when the owner first proved the email theirs; a later proof changes nothing. */
+    public void confirmEmail(Instant at) {
+        if (emailConfirmedAt == null) {
+            emailConfirmedAt = at;
+        }
+    }
 }
