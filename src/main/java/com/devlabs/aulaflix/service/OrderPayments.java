@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.devlabs.aulaflix.domain.PaymentMethod;
 import com.devlabs.aulaflix.domain.entity.AccountEntity;
 import com.devlabs.aulaflix.domain.entity.CourseEntity;
 import com.devlabs.aulaflix.domain.entity.OrderEntity;
@@ -55,18 +56,28 @@ class OrderPayments {
         this.clock = clock;
     }
 
-    /** The events awaiting the worker, oldest first, each with the charge it names. */
+    /** The events awaiting the worker, oldest first, each with its type and the charge or the Checkout it names. */
     @Transactional(readOnly = true)
     List<PendingEvent> pendingEvents() {
         return events.findByStateOrderById(WebhookEventState.PENDING).stream()
-                .map(event -> new PendingEvent(event.getId(), event.getChargeId()))
+                .map(event -> new PendingEvent(event.getId(), event.getEventType(), event.getChargeId(),
+                        event.getCheckoutId()))
                 .toList();
     }
 
     /** Applies what the charge's re-read shows to its Order, and settles the event that named it, at once. */
     @Transactional
     void apply(long eventId, AsaasGateway.Charge charge) {
-        settle(eventId, outcomeOf(charge));
+        settle(eventId, outcomeOf(charge, false));
+    }
+
+    /**
+     * Applies what the charge's re-read shows to its Order after an event said risk analysis rejected the card, which
+     * declines the Order unless the re-read shows the charge paid or still held for analysis; and settles the event.
+     */
+    @Transactional
+    void applyRejection(long eventId, AsaasGateway.Charge charge) {
+        settle(eventId, outcomeOf(charge, true));
     }
 
     /**
@@ -75,7 +86,7 @@ class OrderPayments {
      */
     @Transactional
     boolean applyReread(AsaasGateway.Charge charge) {
-        return outcomeOf(charge) == WebhookEventState.PROCESSED;
+        return outcomeOf(charge, false) == WebhookEventState.PROCESSED;
     }
 
     @Transactional
@@ -84,30 +95,70 @@ class OrderPayments {
         event.settle(outcome, now());
     }
 
-    private WebhookEventState outcomeOf(AsaasGateway.Charge charge) {
-        Optional<Long> studentId = orders.findStudentIdByChargeId(charge.id());
-        if (studentId.isEmpty()) {
+    private WebhookEventState outcomeOf(AsaasGateway.Charge charge, boolean rejectedByRiskAnalysis) {
+        Optional<OrderEntity> found = lockedOrderOf(charge);
+        if (found.isEmpty()) {
             log.warn("Asaas charge {} is no Order's", charge.id());
             return WebhookEventState.IGNORED;
         }
-        accounts.findLockedById(studentId.get()).orElseThrow();
-        OrderEntity order = orders.findWithPartiesByChargeId(charge.id()).orElseThrow();
-        if (!order.getCode().equals(charge.externalReference())
+        OrderEntity order = found.get();
+        if (!isUnder(order, charge)
                 || BigDecimal.valueOf(order.getAmountCents(), 2).compareTo(charge.value()) != 0) {
             log.warn("Asaas charge {} does not match Order {}: it is under another reference or for another amount",
                     charge.id(), order.getCode());
             return WebhookEventState.UNPROCESSABLE;
         }
-        if (charge.deleted() || !PAID.contains(charge.status())) {
-            log.info("Asaas charge {} of Order {} is {}, so not paid", charge.id(), order.getCode(),
-                    charge.deleted() ? "deleted" : charge.status());
-            return WebhookEventState.IGNORED;
+        if (!charge.deleted() && PAID.contains(charge.status())) {
+            if (order.pay(now())) {
+                if (order.getMethod() == PaymentMethod.CARD) {
+                    order.recordCardPayment(charge.id(), charge.installments());
+                }
+                log.info("Order {} was paid", order.getCode());
+                grant(order);
+            }
+            return WebhookEventState.PROCESSED;
         }
-        if (order.pay(now())) {
-            log.info("Order {} was paid", order.getCode());
-            grant(order);
+        if (rejectedByRiskAnalysis && !charge.awaitingRiskAnalysis()) {
+            if (order.decline()) {
+                log.info("Order {} was declined: Asaas's risk analysis rejected the card", order.getCode());
+            }
+            return WebhookEventState.PROCESSED;
         }
-        return WebhookEventState.PROCESSED;
+        log.info("Asaas charge {} of Order {} is {}, so not paid", charge.id(), order.getCode(),
+                charge.deleted() ? "deleted" : charge.status());
+        return WebhookEventState.IGNORED;
+    }
+
+    /**
+     * The Order the charge is for, under its Student's row lock: a Pix's by the charge's id, which the Order keeps
+     * from its placement; a card's by the Checkout its payer paid on, since the charge is made only then.
+     */
+    private Optional<OrderEntity> lockedOrderOf(AsaasGateway.Charge charge) {
+        Optional<Long> byCharge = orders.findStudentIdByChargeId(charge.id());
+        if (byCharge.isPresent()) {
+            accounts.findLockedById(byCharge.get()).orElseThrow();
+            return orders.findWithPartiesByChargeId(charge.id());
+        }
+        if (charge.checkoutSession() == null) {
+            return Optional.empty();
+        }
+        Optional<Long> byCheckout = orders.findStudentIdByCheckoutId(charge.checkoutSession());
+        if (byCheckout.isEmpty()) {
+            return Optional.empty();
+        }
+        accounts.findLockedById(byCheckout.get()).orElseThrow();
+        return orders.findWithPartiesByCheckoutId(charge.checkoutSession());
+    }
+
+    /**
+     * Whether the charge was made under the Order's code; or, as Asaas may not copy a Checkout's external reference
+     * onto the charges its payer makes, under none, on the Order's Checkout.
+     */
+    private static boolean isUnder(OrderEntity order, AsaasGateway.Charge charge) {
+        if (charge.externalReference() != null) {
+            return order.getCode().equals(charge.externalReference());
+        }
+        return order.getAsaasCheckoutId() != null && order.getAsaasCheckoutId().equals(charge.checkoutSession());
     }
 
     /**
@@ -142,7 +193,7 @@ class OrderPayments {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
-    /** An event the worker has yet to process, and the charge it names. */
-    record PendingEvent(long id, String chargeId) {
+    /** An event the worker has yet to process, its type, and the charge, or for a Checkout event the Checkout, it names. */
+    record PendingEvent(long id, String type, String chargeId, String checkoutId) {
     }
 }

@@ -935,10 +935,16 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.Order.properties").asMap()
                 .containsOnlyKeys("code", "status", "method", "course", "amountCents", "createdAt", "paidAt",
-                        "duplicatePayment", "pix");
+                        "duplicatePayment", "installments", "pix", "checkout");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.CheckoutPayment.properties").asMap()
+                .containsOnlyKeys("url", "expiresAt");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.OrderRequest.properties").asMap()
                 .containsOnlyKeys("courseId", "method", "cpf");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.OrderRequest.properties.method.enum")
+                .isEqualTo(List.of("PIX", "CARD"));
     }
 
     @Test

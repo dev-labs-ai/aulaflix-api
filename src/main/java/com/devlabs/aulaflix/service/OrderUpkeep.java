@@ -2,12 +2,14 @@ package com.devlabs.aulaflix.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.devlabs.aulaflix.domain.OrderStatus;
 import com.devlabs.aulaflix.domain.entity.OrderEntity;
 import com.devlabs.aulaflix.repository.AccountRepository;
 import com.devlabs.aulaflix.repository.OrderRepository;
@@ -48,6 +50,14 @@ class OrderUpkeep {
         return orders.findWithChargesToDeletePlacedBy(before).stream().map(OrderUpkeep::due).toList();
     }
 
+    /** The card Order still awaiting payment on the Checkout, if any. */
+    @Transactional(readOnly = true)
+    Optional<DueOrder> awaitingOnCheckout(String checkoutId) {
+        return orders.findWithPartiesByCheckoutId(checkoutId)
+                .filter(order -> order.getStatus() == OrderStatus.AWAITING_PAYMENT)
+                .map(OrderUpkeep::due);
+    }
+
     /** Expires the Order, unless something, a payment above all, moved it on meanwhile. */
     @Transactional
     void expire(DueOrder due) {
@@ -58,10 +68,14 @@ class OrderUpkeep {
     }
 
     private static DueOrder due(OrderEntity order) {
-        return new DueOrder(order.getId(), order.getCode(), order.getStudent().getId(), order.getAsaasPaymentId());
+        return new DueOrder(order.getId(), order.getCode(), order.getStudent().getId(), order.getAsaasPaymentId(),
+                order.getAsaasCheckoutId());
     }
 
-    /** An Order a job has to look at: its Student's id, and its charge's, which is null until Asaas gave one. */
-    record DueOrder(long id, String code, long studentId, String chargeId) {
+    /**
+     * An Order a job has to look at: its Student's id; its charge's, which is null until Asaas gave one, and for a card
+     * until it is paid; and a card Order's Checkout's, null until Asaas gave one.
+     */
+    record DueOrder(long id, String code, long studentId, String chargeId, String checkoutId) {
     }
 }

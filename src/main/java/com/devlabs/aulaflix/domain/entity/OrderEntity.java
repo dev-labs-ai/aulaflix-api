@@ -89,17 +89,37 @@ public class OrderEntity {
     @Column(name = "paid_at")
     private Instant paidAt;
 
+    @Column(name = "asaas_checkout_id", length = 64)
+    private String asaasCheckoutId;
+
+    @Column(name = "checkout_url")
+    private String checkoutUrl;
+
+    @Column(name = "installments")
+    private Integer installments;
+
     protected OrderEntity() {
     }
 
     /** A Pix Order for the Pix price, awaiting payment until it expires; its charge comes once Asaas makes it. */
     public static OrderEntity pix(String code, AccountEntity student, CourseEntity course, int amountCents,
                                   Instant createdAt, Instant expiresAt) {
+        return awaiting(PaymentMethod.PIX, code, student, course, amountCents, createdAt, expiresAt);
+    }
+
+    /** A card Order for the Course's price, awaiting payment until it expires; its Checkout comes once Asaas makes it. */
+    public static OrderEntity card(String code, AccountEntity student, CourseEntity course, Instant createdAt,
+                                   Instant expiresAt) {
+        return awaiting(PaymentMethod.CARD, code, student, course, course.getPriceCents(), createdAt, expiresAt);
+    }
+
+    private static OrderEntity awaiting(PaymentMethod method, String code, AccountEntity student, CourseEntity course,
+                                        int amountCents, Instant createdAt, Instant expiresAt) {
         OrderEntity order = new OrderEntity();
         order.code = code;
         order.student = student;
         order.course = course;
-        order.method = PaymentMethod.PIX;
+        order.method = method;
         order.status = OrderStatus.AWAITING_PAYMENT;
         order.listPriceCents = course.getPriceCents();
         order.pixDiscountPercent = course.getPixDiscountPercent();
@@ -114,6 +134,35 @@ public class OrderEntity {
         this.asaasPaymentId = paymentId;
         this.pixQrCodePng = qrCodePng;
         this.pixCopyPasteCode = copyPasteCode;
+    }
+
+    /** The Checkout Asaas made under the Order's code, and the link the Student pays it at. */
+    public void recordCheckout(String checkoutId, String url) {
+        this.asaasCheckoutId = checkoutId;
+        this.checkoutUrl = url;
+    }
+
+    /**
+     * The card charge that paid the Order, the first of the sale's installments Asaas showed, and how many installments
+     * the Student chose; an Order that has its charge keeps it.
+     */
+    public void recordCardPayment(String paymentId, int installmentCount) {
+        if (asaasPaymentId == null) {
+            asaasPaymentId = paymentId;
+            installments = installmentCount;
+        }
+    }
+
+    /**
+     * Declined while it awaited payment, as Asaas's risk analysis rejected the card, and answers whether it was; any
+     * other state stays, since a payment wins.
+     */
+    public boolean decline() {
+        if (status != OrderStatus.AWAITING_PAYMENT) {
+            return false;
+        }
+        status = OrderStatus.DECLINED;
+        return true;
     }
 
     /** Cancelled while it awaited payment; any other state stays, since a payment wins. */
@@ -229,5 +278,17 @@ public class OrderEntity {
 
     public Instant getPaidAt() {
         return paidAt;
+    }
+
+    public String getAsaasCheckoutId() {
+        return asaasCheckoutId;
+    }
+
+    public String getCheckoutUrl() {
+        return checkoutUrl;
+    }
+
+    public Integer getInstallments() {
+        return installments;
     }
 }

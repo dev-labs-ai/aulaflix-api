@@ -32,10 +32,15 @@ public class AsaasWebhookInbox {
     private static final int MAX_BODY_BYTES = 256 * 1024;
 
     /** The events whose charge the worker re-reads; any other is stored as ignored. */
-    private static final Set<String> HANDLED_EVENTS = Set.of("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED");
+    private static final Set<String> HANDLED_EVENTS = Set.of("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED",
+            WebhookWorker.RISK_ANALYSIS_REJECTION, "PAYMENT_APPROVED_BY_RISK_ANALYSIS");
+
+    /** The events whose Checkout's Order the worker expires, once it re-read the Checkout's charges. */
+    private static final Set<String> HANDLED_CHECKOUT_EVENTS = Set.of("CHECKOUT_EXPIRED");
 
     private static final int MAX_EVENT_ID_LENGTH = 255;
     private static final int MAX_CHARGE_ID_LENGTH = 64;
+    private static final int MAX_CHECKOUT_ID_LENGTH = 64;
 
     private final WebhookEventRepository repository;
     private final JsonMapper json;
@@ -56,7 +61,7 @@ public class AsaasWebhookInbox {
         byte[] raw = readAtMost(body);
         Delivery delivery = read(raw);
         int stored = repository.insertUnlessReceived(delivery.eventId(), delivery.eventType(), delivery.chargeId(),
-                raw, clock.instant().truncatedTo(ChronoUnit.MICROS), delivery.state().name());
+                delivery.checkoutId(), raw, clock.instant().truncatedTo(ChronoUnit.MICROS), delivery.state().name());
         if (stored == 0) {
             log.info("Asaas webhook event {} was received before", delivery.eventId());
         } else if (delivery.state() == WebhookEventState.UNPROCESSABLE) {
@@ -92,14 +97,21 @@ public class AsaasWebhookInbox {
             return Delivery.unprocessable(null, null, "no event id");
         }
         String eventType = textOf(event.path("event"));
+        if (HANDLED_CHECKOUT_EVENTS.contains(eventType)) {
+            String checkoutId = textOf(event.path("checkout").path("id"));
+            if (checkoutId == null || checkoutId.length() > MAX_CHECKOUT_ID_LENGTH) {
+                return Delivery.unprocessable(eventId, eventType, "no Checkout id in " + eventType);
+            }
+            return new Delivery(eventId, eventType, null, checkoutId, WebhookEventState.PENDING, null);
+        }
         if (!HANDLED_EVENTS.contains(eventType)) {
-            return new Delivery(eventId, eventType, null, WebhookEventState.IGNORED, null);
+            return new Delivery(eventId, eventType, null, null, WebhookEventState.IGNORED, null);
         }
         String chargeId = textOf(event.path("payment").path("id"));
         if (chargeId == null || chargeId.length() > MAX_CHARGE_ID_LENGTH) {
             return Delivery.unprocessable(eventId, eventType, "no charge id in " + eventType);
         }
-        return new Delivery(eventId, eventType, chargeId, WebhookEventState.PENDING, null);
+        return new Delivery(eventId, eventType, chargeId, null, WebhookEventState.PENDING, null);
     }
 
     /** A JSON string's text, or null for anything else, an empty string included. */
@@ -108,11 +120,11 @@ public class AsaasWebhookInbox {
     }
 
     /** What the inbox makes of a delivery, and, when it cannot process it, why. */
-    private record Delivery(String eventId, String eventType, String chargeId, WebhookEventState state,
-                            String problem) {
+    private record Delivery(String eventId, String eventType, String chargeId, String checkoutId,
+                            WebhookEventState state, String problem) {
 
         static Delivery unprocessable(String eventId, String eventType, String problem) {
-            return new Delivery(eventId, eventType, null, WebhookEventState.UNPROCESSABLE, problem);
+            return new Delivery(eventId, eventType, null, null, WebhookEventState.UNPROCESSABLE, problem);
         }
     }
 }

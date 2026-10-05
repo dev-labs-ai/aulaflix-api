@@ -376,6 +376,29 @@ unchanged for the next run. A call Asaas refuses is logged at `ERROR`: the expir
 reconciliation reads an awaiting Order again on its next run, until it expires, and gives up on a cancelled Order's
 charges.
 
+### Paying by card
+
+A card is paid on Asaas's own page, a Checkout, so that it never touches AulaFlix: `POST /v1/account/orders`
+`{ courseId, method: "CARD" }` asks for no CPF, writes the Order at the Course's current price, and asks Asaas for a
+Checkout under the Order's code, for that price, in one payment or up to the Course's `maxInstallments`, living 60
+minutes. It answers 201 with the Order and its `checkout` `{ url, expiresAt }`; the BFF sends the browser to `url`,
+exactly as Asaas gave it. Asaas sends the Student back to `{aulaflix.web.base-url}/cursos/{slug}/comprar?pedido={code}`
+after paying or once the Checkout expired, and with `&cancelado=1` after cancelling; coming back proves nothing, and the
+page reads the Order. Asking for card again answers the awaiting Order with 200. When Asaas fails, the answers are those
+of a Pix, and the Order is cancelled; a Checkout made all the same has a link no one got, and expires on its own.
+
+The card's charges, one per installment, are made only once the Student pays, and name the Checkout in
+`checkoutSession`, by which the worker finds the Order. Each re-read must be on the Order's Checkout, under its code or
+under none, and its installment plan must total the Order's amount. The first confirmed charge makes the Order `PAID`,
+with `installments`, the number the Student chose, and grants the one Enrollment, however many `PAYMENT_CONFIRMED` the
+installments bring. A card held for Asaas's risk analysis keeps the Order awaiting payment. On
+`PAYMENT_REPROVED_BY_RISK_ANALYSIS`, a re-read that shows the charge neither paid nor held makes the Order `DECLINED`:
+it grants nothing, leaves the list, and the Student may place a new Order.
+
+A card Order expires at 60 minutes in the expiry job, or on Asaas's `CHECKOUT_EXPIRED` event; either way the
+Checkout's charges are re-read first, a payment wins, and a card held for risk analysis keeps the Order awaiting
+payment. Reconciliation re-reads them too, after its delay.
+
 ## The API's image and the `full` profile
 
 The `Dockerfile` builds the API's image: the jar on a JRE, run as the unprivileged user 10001, with the heap at 75% of

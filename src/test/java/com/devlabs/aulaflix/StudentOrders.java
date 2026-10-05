@@ -51,6 +51,18 @@ public final class StudentOrders {
         return codeOf(placed);
     }
 
+    /** A card Order for the Course, which asks for no CPF. */
+    public MvcTestResult placeCard(long courseId) {
+        return place("{\"courseId\": %d, \"method\": \"CARD\"}".formatted(courseId));
+    }
+
+    /** The new card Order's code, failing the test unless the Order is placed. */
+    public String placedCard(long courseId) {
+        MvcTestResult placed = placeCard(courseId);
+        assertThat(placed).hasStatus(HttpStatus.CREATED);
+        return codeOf(placed);
+    }
+
     public MvcTestResult list() {
         return bff.get("/v1/account/orders").header(HttpHeaders.AUTHORIZATION, bearer).exchange();
     }

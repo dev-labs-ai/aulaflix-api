@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.devlabs.aulaflix.domain.OrderStatus;
+import com.devlabs.aulaflix.domain.PaymentMethod;
 import com.devlabs.aulaflix.dto.Order;
 import com.devlabs.aulaflix.dto.OrderList;
 import com.devlabs.aulaflix.dto.OrderRequest;
@@ -46,29 +47,36 @@ public class OrderService {
     private final AsaasGateway asaas;
     private final RateLimiter limiter;
     private final CheckoutLimits limits;
+    private final CheckoutReturns returns;
     private final Clock clock;
 
     public OrderService(OrderPlacements placements, OrderRepository repository, AsaasGateway asaas,
-                        RateLimiter limiter, CheckoutLimits limits, Clock clock) {
+                        RateLimiter limiter, CheckoutLimits limits, CheckoutReturns returns, Clock clock) {
         this.placements = placements;
         this.repository = repository;
         this.asaas = asaas;
         this.limiter = limiter;
         this.limits = limits;
+        this.returns = returns;
         this.clock = clock;
     }
 
     /**
-     * Places a Pix Order for an On sale Course, or answers the one already awaiting payment, which makes no new
-     * charge. A Student's first Pix makes their Asaas customer with the CPF, which is never stored. Every placement
-     * counts against the Student's limit and everyone's, whatever it answers.
+     * Places an Order for an On sale Course, or answers the one already awaiting payment, which makes nothing new at
+     * Asaas. A Pix is a charge; a Student's first Pix makes their Asaas customer with the CPF, which is never stored. A
+     * card is paid on an Asaas Checkout. Every placement counts against the Student's limit and everyone's, whatever
+     * it answers.
      */
     public PlacedOrder place(long studentId, OrderRequest request) {
         limiter.consume(limits.perStudent(), RateLimitKey.student(studentId));
         limiter.consume(limits.everyone(), RateLimitKey.everyone());
-        OrderPlacements.Placement placement = placements.open(studentId, request.courseId(), request.cpf());
+        OrderPlacements.Placement placement = placements.open(studentId, request.courseId(), request.method(),
+                request.cpf());
         if (placement.existing() != null) {
             return new PlacedOrder(placement.existing(), false);
+        }
+        if (placement.method() == PaymentMethod.CARD) {
+            return new PlacedOrder(checkout(placement), true);
         }
         return new PlacedOrder(charge(studentId, placement), true);
     }
@@ -88,6 +96,33 @@ public class OrderService {
                 .orElseThrow(OrderNotFoundException::new);
     }
 
+    /**
+     * Makes the card Order's Checkout. When Asaas fails, the Order is cancelled, and nothing is left to undo: a
+     * Checkout made all the same, under a call that timed out, has a link no one got, and expires on its own.
+     */
+    private Order checkout(OrderPlacements.Placement placement) {
+        try {
+            AsaasGateway.Checkout checkout = asaas.createCardCheckout(new AsaasGateway.CardCheckout(placement.code(),
+                    placement.courseTitle(), description(placement), placement.amountCents(),
+                    placement.maxInstallments(), OrderPlacements.CARD_LIFETIME,
+                    returns.after(placement.courseSlug(), placement.code()),
+                    returns.afterCancelling(placement.courseSlug(), placement.code())));
+            return placements.recordCheckout(placement.orderId(), checkout);
+        } catch (AsaasUnavailableException failure) {
+            placements.cancel(placement.orderId(), false);
+            throw new PaymentUnavailableException("Order %s cancelled; %s".formatted(placement.code(),
+                    failure.getMessage()), failure.retryAfter());
+        } catch (AsaasRefusedException refusal) {
+            placements.cancel(placement.orderId(), false);
+            throw new PaymentProviderErrorException("Order %s cancelled; %s".formatted(placement.code(),
+                    refusal.getMessage()));
+        }
+    }
+
+    private static String description(OrderPlacements.Placement placement) {
+        return "Pedido %s: %s".formatted(placement.code(), placement.courseTitle());
+    }
+
     private Order charge(long studentId, OrderPlacements.Placement placement) {
         Charging charging = new Charging();
         try {
@@ -97,7 +132,7 @@ public class OrderService {
             charging.started = true;
             charging.chargeId = asaas.createPixCharge(customerId, placement.amountCents(),
                     LocalDate.now(clock.withZone(ASAAS_ZONE)), placement.code(),
-                    "Pedido %s: %s".formatted(placement.code(), placement.courseTitle()));
+                    description(placement));
             return placements.recordPixCharge(placement.orderId(), charging.chargeId,
                     asaas.pixQrCode(charging.chargeId));
         } catch (AsaasUnavailableException failure) {
