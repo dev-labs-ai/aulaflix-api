@@ -21,7 +21,7 @@ for key in read-only read-write; do
 done
 # …and AIStor Free's license, downloaded from your MinIO account, as secrets/minio.license
 
-docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000
+docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000, Mailpit (below)
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
@@ -33,6 +33,9 @@ the tests and in production. On every `up`, `storage-init` creates the private `
 users: a read-only one, which signs playback, and a read-write one, which signs uploads and serves the API's own reads
 and deletes. Running it again changes nothing. Only `storage` and `storage-init` hold the root credentials, and the
 console is not published.
+
+Mailpit catches every email the API sends locally: its SMTP server listens on 127.0.0.1:1025, without TLS, which is
+where the default `spring.mail.*` points, and its inbox is at <http://localhost:8025>.
 
 The secret files, and the services that mount them:
 
@@ -198,6 +201,31 @@ an email within 15 minutes block it for 15 minutes, with a counter apart from th
 and sign-in together get 60 requests an hour, and sign-up 10 a day, whatever they answer
 (`aulaflix.rate-limits.look-ups-and-sign-ins.*`, `aulaflix.rate-limits.sign-ups.*`).
 
+Sign-up queues the confirmation link, which is also the welcome email: `{webBase}/confirmar-email#<token>`, where
+`webBase` is `aulaflix.web.base-url`. The web's page posts the token to `POST /v1/email-confirmations` `{ token }`,
+without a session, which answers 204 and signs no one in; a second click still answers 204, until the link expires 72
+hours after it was sent. An unknown, expired or voided link gets 400 `invalid-confirmation-link`, and each IP gets 30
+posts an hour (`aulaflix.rate-limits.email-confirmations.*`). `POST /v1/account/confirmation-emails`, with the
+Student's session, sends a new link and voids the earlier ones: 60 seconds after the latest link at the soonest, and at
+most 5 times within 24 hours, past which it answers 429 with `Retry-After`; an email already confirmed gets 409
+`email-already-confirmed`. `GET /v1/account` shows `emailConfirmed`. Nothing is gated on it.
+
+## Emails
+
+Every email goes through the outbox (`outbox_emails`): it is rendered and queued in the transaction of what it tells
+of, so a request never waits on SMTP, and the drainer sends it later. The drainer runs `aulaflix.outbox.drain-interval`
+after the end of the drain before, and starts at most `aulaflix.outbox.send-rate.emails` sends within any
+`aulaflix.outbox.send-rate.per`, a failed one included; production keeps that below the SES account's maximum. An
+email the server fails is tried again a minute later, then twice as long after each failure, up to an hour, and is
+never given up on; its `attempts` count every try. Admin mode runs no drainer. Every email comes from
+`aulaflix.outbox.from`, `AulaFlix <contato@aulaflix.com.br>`.
+
+SMTP is Spring's `spring.mail.*`, with timeouts that stop a silent server from holding the drainer. Locally it is
+Mailpit, without TLS. Production points `spring.mail.host` at `email-smtp.sa-east-1.amazonaws.com`, port 587, with
+the SES SMTP credentials as the secret files `spring.mail.username` and `spring.mail.password`, and requires STARTTLS:
+`spring.mail.properties.mail.smtp.auth`, `….starttls.enable` and `….starttls.required` set to `true`. SES's ports 465
+and 2465 take `spring.mail.ssl.enabled=true` instead.
+
 ## Meus cursos and Progress
 
 With the Student's token, `GET /v1/account/enrollments` answers "Meus cursos": `{ items }`, every active Enrollment,
@@ -224,7 +252,8 @@ requests in flight finish, for 30 seconds at most, and Compose waits 40 before i
 The `full` profile adds the API's image, built from this repository, and the web's, from `aulaflix-web`'s private
 image on GHCR, so the Admin rehearses Course JSON files against the whole stack before production. The API waits for
 PostgreSQL and the storage to be healthy and for `storage-init` to complete; it reaches the storage at
-`storage:9000`, but signs URLs for `localhost:9000`, where curl and the browser reach it.
+`storage:9000`, but signs URLs for `localhost:9000`, where curl and the browser reach it. Its emails go to Mailpit at
+`mailpit:1025`, and show in its inbox at <http://localhost:8025>.
 
 ```shell
 cp .env.example .env              # the web image's tag; nothing secret
@@ -296,10 +325,105 @@ The Course now shows at `http://localhost:3001/cursos/git-do-zero`, with its pri
 which plays. When the API refuses the file, `curl -sf` hides why: drop the `f` to see the `ProblemDetail`, fix the
 file and `PUT` it again. `docker compose --profile full down -v` throws the rehearsal away, volumes included.
 
+## Deploying to production
+
+Production is one VPS (ADR 0003), and each repository deploys its own image, so a web change never redeploys the API.
+This repository carries:
+
+- `deploy/compose.yaml`: the API, PostgreSQL, the storage and `storage-init`. PostgreSQL lives only on
+  `aulaflix-data`, which is `internal: true`; the API and the storage also join `edge-aulaflix`, the external network
+  the web and the edge share. The only published port is the API's, on the VPS's `127.0.0.1:8080`, for the SSH tunnel.
+- `src/main/resources/application-production.properties`: every non-secret production setting, inside the image, turned
+  on by `SPRING_PROFILES_ACTIVE=production` in the Compose file.
+- `deploy/.env.example`: the image tag, and the list of secret files.
+- `deploy/nginx/`: the AulaFlix server blocks for `vps-edge`, and the njs key that counts media connections per IPv4
+  address or IPv6 /64. `EdgeServerBlocksTest` runs them in the nginx image, with `nginx -t` among its checks.
+- `.github/workflows/deploy.yml`: on every push to `main`, the tests, then the image, pushed to GHCR under the commit's
+  SHA, then `docker compose pull api && docker compose up -d api` over SSH.
+
+### Setting up the VPS, once
+
+```shell
+# The repository, for deploy/ and storage/ (the API itself comes from GHCR), and the network the edge and web share
+sudo install -d -o deploy -g deploy /srv/aulaflix
+git clone https://github.com/dev-labs-ai/aulaflix-api.git /srv/aulaflix/aulaflix-api
+docker network create --ipv6 edge-aulaflix
+docker login ghcr.io       # with a GitHub token that has read:packages only, since the image is private
+
+# The secrets: mode 600, in a directory only root enters. Paste each value given by a provider, then Ctrl-D
+sudo install -d -m 700 /srv/aulaflix/secrets
+sudo sh -c 'cd /srv/aulaflix/secrets && umask 077
+    openssl rand -base64 24 > spring.datasource.password
+    openssl rand -base64 32 > aulaflix.bff.key
+    openssl rand -hex 10 > storage.root-user
+    openssl rand -hex 24 > storage.root-password
+    for key in read-only read-write; do
+        openssl rand -hex 10 > aulaflix.storage.$key.access-key-id
+        openssl rand -hex 20 > aulaflix.storage.$key.secret-access-key
+    done
+    openssl rand -base64 32 > aulaflix.codes.hmac-key
+    openssl rand -base64 32 > aulaflix.waitlist.unsubscribe-key'
+for name in aulaflix.asaas.api-key aulaflix.asaas.webhook-token spring.mail.username spring.mail.password \
+        aulaflix.turnstile.secret-key minio.license; do
+    sudo sh -c "umask 077; cat > /srv/aulaflix/secrets/$name"
+done
+# The API's image runs as uid 10001, and Compose mounts each file with its owner and mode, so the files the API reads
+# become 10001's, still mode 600. The rest stay root's, read only by the root-run storage and storage-init.
+sudo sh -c 'cd /srv/aulaflix/secrets && chown 10001:10001 $(ls | grep -v -x -e minio.license -e storage.root-user \
+    -e storage.root-password)'
+
+cd /srv/aulaflix/aulaflix-api/deploy
+cp .env.example .env       # then set AULAFLIX_API_TAG to a commit GitHub Actions has pushed
+docker compose up -d
+docker compose run --rm api admin create --email you@example.com --name "Your Name"
+```
+
+`deploy/.env.example` lists every secret file, who reads it and what it holds. The unsubscribe key must survive every
+redeploy: a new one breaks the links in emails already sent. If the web runs as a user other than root or 10001, give
+`aulaflix.bff.key`, which its Compose file mounts too, the web's group and mode 640.
+
+In GitHub, the repository secret `MINIO_LICENSE` holds the license for the tests, and the `production` environment
+holds the deploy's SSH access: `VPS_HOST`, `VPS_USER` (in the `docker` group, owning `deploy/.env`), `VPS_SSH_KEY` (a
+key for this workflow alone) and `VPS_KNOWN_HOSTS` (`ssh-keyscan` of the VPS, checked before anything is sent).
+
+### Every deploy, and what it leaves alone
+
+The workflow rewrites `AULAFLIX_API_TAG` in `deploy/.env`, pulls that image and recreates the API container alone:
+PostgreSQL and the storage keep running, and `storage-init` runs again, which changes nothing. The API is one
+container, so a deploy brings seconds of downtime.
+
+The workflow never touches the clone. When `deploy/` or `storage/` change, pull them and apply them by hand:
+
+```shell
+cd /srv/aulaflix/aulaflix-api && git pull --ff-only && cd deploy && docker compose up -d
+```
+
+The owner reaches PostgreSQL with `docker compose exec postgres psql -U aulaflix`, the storage with `mc` in
+`docker compose run --rm --entrypoint sh storage-init` (setting its alias as `storage/init.sh` does), and the Admin
+endpoints and Swagger UI through `ssh -L 8080:127.0.0.1:8080`.
+
+### The edge
+
+`vps-edge` includes `deploy/nginx/aulaflix.conf` in its `http` block, mounts `aulaflix-media.js` at
+`/etc/nginx/njs/`, loads `ngx_http_js_module` in its main context, joins `edge-aulaflix`, and serves certbot's
+webroot from `/var/www/certbot` with one certificate for the four names at `/etc/letsencrypt/live/aulaflix.com.br/`.
+
+- `aulaflix.com.br` sends every path to `web:3000`; `www` answers 301 to it.
+- `media.aulaflix.com.br` passes only `GET`, `HEAD` and `PUT` under `/videos/` to `storage:9000`, with the `Host` the
+  URL was signed for. A `GET` or `HEAD` counts against 6 connections per client and slows to 1 MB/s after its first
+  4 MB; an upload, up to 5 GiB, streams through unlimited. The access log keeps the path without the presigned query.
+- `api.aulaflix.com.br` passes only `POST /v1/webhooks/asaas`, from Asaas's four production IPs, with a 256 KB body
+  limit, and blanks `AulaFlix-BFF-Key` and `AulaFlix-Client-IP`. Register the webhook in Asaas at
+  `https://api.aulaflix.com.br/v1/webhooks/asaas`.
+- Port 80 answers the ACME challenge on every name and sends the rest to HTTPS; on `api`, the rest gets a 404. Every
+  proxied request carries `X-Forwarded-For $remote_addr`, and every HTTPS answer HSTS, without `includeSubDomains`.
+
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from
-`secrets/minio.license`, which CI writes there from a secret. HIBP is played by WireMock, in the tests' JVM. `./mvnw verify` also runs the `*IT` tests, which make the
+`secrets/minio.license`, which CI writes there from a secret. HIBP is played by WireMock, in the tests' JVM. Mailpit runs in Testcontainers too, behind a relay in the tests' JVM
+that a test can take down or silence, and the tests read what it received through its REST API. No job runs on its
+own in the tests: a test drains the outbox itself, once, synchronously. `./mvnw verify` also runs the `*IT` tests, which make the
 signed uploads and playback requests over real HTTP. Mutation testing runs with
 `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`, and its report lands in `target/pit-reports/`. It
 mutates the `command`, `config`, `exception` and `service` packages. To check one slice, name the classes it changed:
