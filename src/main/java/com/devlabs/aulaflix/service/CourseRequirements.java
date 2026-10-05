@@ -26,11 +26,14 @@ final class CourseRequirements {
                     new Requirement("plannedTopics", course -> !course.getPlannedTopics().isEmpty())))
             .toList();
 
-    /** No Course can have a Free lesson yet, so none is ready to go on sale. */
+    /**
+     * A price that divides by the installments, and a published Free lesson. The service refuses any other price, and
+     * any other Free lesson, whatever the state, so here it is enough that both are set.
+     */
     private static final List<Requirement> ON_SALE = Stream.concat(CONTENT.stream(), Stream.of(
                     new Requirement("priceCents", course -> course.getPriceCents() != null),
                     new Requirement("maxInstallments", course -> course.getMaxInstallments() != null),
-                    new Requirement("freeLessonId", course -> false)))
+                    new Requirement("freeLessonId", course -> course.getFreeLessonId() != null)))
             .toList();
 
     private CourseRequirements() {

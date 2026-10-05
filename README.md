@@ -65,10 +65,15 @@ state the Course can move to next, the fields still missing. `DELETE` removes a 
 Modules and Lessons.
 
 `PUT /v1/admin/courses/{courseId}/status` `{ "status": "COMING_SOON" }` announces the Course: it shows in the public
-catalog from then on, with its Planned topics. A Course moves forward only, and sending the state it is already in
-changes nothing. A move it isn't ready for is refused with every missing field listed. Once it leaves Draft, its slug
-is frozen, it can no longer be deleted, and a `PUT` that would leave it without a field its state needs is refused
-the same way.
+catalog from then on, with its Planned topics. `{ "status": "ON_SALE" }` launches it, from Draft or from Coming soon:
+its price and Syllabus show instead, and it can be bought. A Course moves forward only, and sending the state it is
+already in changes nothing. A move it isn't ready for is refused with every missing field listed. Once it leaves
+Draft, its slug is frozen, it can no longer be deleted, and a `PUT` that would leave it without a field its state
+needs is refused the same way.
+
+Going On sale needs `priceCents`, which `maxInstallments` must divide exactly, and `freeLessonId`: the Free lesson,
+which anyone may watch, a published Lesson of the Course from any Module. While On sale, the price and the Free lesson
+can change, but never be cleared.
 
 ## Shaping a Course's outline
 
@@ -76,11 +81,16 @@ The outline is a Course's Modules in order, each with its Lessons in order; a Le
 `POST /v1/admin/courses/{courseId}/modules` `{ "title": … }` appends a Module, and
 `POST /v1/admin/modules/{moduleId}/lessons` `{ "title": …, "slug": … }` appends an unpublished Lesson to a Module. A
 Lesson's slug is unique within its Course. `PUT /v1/admin/modules/{moduleId}` renames a Module and
-`PUT /v1/admin/lessons/{lessonId}` edits a Lesson; `DELETE` at either address removes an empty Module or a Lesson.
+`PUT /v1/admin/lessons/{lessonId}` edits a Lesson; `DELETE` at either address removes an empty Module or an
+unpublished Lesson.
 
 `GET /v1/admin/courses/{courseId}/outline` reads the order as `[{ "moduleId": …, "lessonIds": [ … ] }, …]`. Edit it
 and `PUT` it back to reorder the Modules and move Lessons between them in one change. It must name exactly the
 Course's current Modules and Lessons, each once, or nothing changes.
+
+`PUT /v1/admin/lessons/{lessonId}/status` `{ "status": "PUBLISHED" }` publishes a Lesson once its video is linked;
+sending it again changes nothing. Until then the Lesson shows as "Em breve" in the Syllabus. A published Lesson is
+never unpublished nor deleted, and its slug is frozen, but its title can change and its video can be replaced.
 
 ## Uploading a Lesson's video
 
@@ -111,9 +121,11 @@ state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes its 
 ## The public catalog
 
 The BFF reads the catalog with `GET /v1/courses` and `GET /v1/courses/{slug}`, without a session. A Draft answers like
-a slug no Course has. Every request but the Admin's carries `AulaFlix-BFF-Key`, without which the API answers 403,
-and then `AulaFlix-Client-IP`, the browser's IP address, without which it answers 400. The OpenAPI document of these
-endpoints is at `/v3/api-docs/bff`.
+a slug no Course has. An On sale Course comes with its `pricing`, Pix price and installment worked out, and its page
+with the Syllabus: the Modules that have Lessons, numbered, and every Lesson numbered across them, "Em breve" ones
+included, with no video URL anywhere. Every request but the Admin's carries `AulaFlix-BFF-Key`, without which the
+API answers 403, and then `AulaFlix-Client-IP`, the browser's IP address, without which it answers 400. The OpenAPI
+document of these endpoints is at `/v3/api-docs/bff`.
 
 ```shell
 curl -H "AulaFlix-BFF-Key: $(cat secrets/aulaflix.bff.key)" -H "AulaFlix-Client-IP: 127.0.0.1" \

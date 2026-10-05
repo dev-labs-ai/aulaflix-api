@@ -96,8 +96,10 @@ public class AdminCourseController {
     @ApiResponse(responseCode = "404", description = "`course-not-found`")
     @ApiResponse(responseCode = "409", description = """
             `slug-taken`; `slug-frozen` once the Course is no longer a Draft; `price-not-divisible-by-installments` \
-            when both are set and `priceCents` leaves a remainder; or `course-requirements-unmet` when the document \
-            would leave a Course that is no longer a Draft without a field its state needs, all listed in `missing`""")
+            when both are set and `priceCents` leaves a remainder; `free-lesson-ineligible` when `freeLessonId` \
+            names anything but a published Lesson of this Course; or `course-requirements-unmet` when the document \
+            would leave a Course that is no longer a Draft without a field its state needs, all listed in `missing`: \
+            an On sale Course can change its price and its Free lesson, but never clear them""")
     public AdminCourse update(@AuthenticationPrincipal AuthenticatedAccount admin, @PathVariable String courseId,
                               @Valid @RequestBody CourseDocument document) {
         return courses.update(admin.accountId(), courseId, document);
@@ -107,7 +109,8 @@ public class AdminCourseController {
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Move a Course to another state", description = """
             A Course moves forward only: from Draft to Coming soon to On sale, or from Draft straight to On sale. \
-            Sending the state it is already in changes nothing, so a retry is harmless.""")
+            Going On sale needs a price, the most installments and a published Free lesson, besides the marketing \
+            copy. Sending the state it is already in changes nothing, so a retry is harmless.""")
     @ApiResponse(responseCode = "200", description = "The Course as it now is",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = AdminCourse.class)))

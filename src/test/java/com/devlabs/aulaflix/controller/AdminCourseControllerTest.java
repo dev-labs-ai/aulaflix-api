@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
@@ -28,8 +29,10 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import com.devlabs.aulaflix.AdminApi;
+import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.StoredCourses;
+import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.service.AccountService;
 import com.jayway.jsonpath.DocumentContext;
 import com.jayway.jsonpath.JsonPath;
@@ -46,6 +49,9 @@ class AdminCourseControllerTest extends IntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private StoredVideos storedVideos;
 
     private String token;
 
@@ -411,14 +417,16 @@ class AdminCourseControllerTest extends IntegrationTest {
     }
 
     @Test
-    void readsAnOnSaleCourseWithWhenItLaunchedAndNoReadiness() {
-        long id = new StoredCourses(jdbc).insertOnSale(newSlug(), Instant.parse("2026-09-15T09:30:00Z"));
+    void readsAnOnSaleCourseWithWhenItLaunchedItsFreeLessonAndNoReadiness() {
+        clock.set(Instant.parse("2026-09-15T09:30:00Z"));
+        long id = courses().onSale(newSlug());
 
         assertThat(get(id)).hasStatusOk().bodyJson()
                 .doesNotHavePath("$.comingSoonAt")
                 .doesNotHavePath("$.readiness")
                 .isLenientlyEqualTo("""
-                        {"status": "ON_SALE", "onSaleAt": "2026-09-15T09:30:00Z"}""");
+                        {"status": "ON_SALE", "onSaleAt": "2026-09-15T09:30:00Z", "freeLessonId": %d}"""
+                        .formatted(freeLessonOf(id)));
     }
 
     @Test
@@ -536,7 +544,7 @@ class AdminCourseControllerTest extends IntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"COMING_SOON", "DRAFT"})
     void refusesToMoveAnOnSaleCourseBackAndChangesNothing(String status) {
-        long id = new StoredCourses(jdbc).insertOnSale(newSlug(), Instant.parse("2026-09-15T09:30:00Z"));
+        long id = courses().launchedAfterAnnouncement(newSlug());
         String before = body(get(id));
 
         assertCannotMoveBack(changeStatus(id, status), id);
@@ -554,7 +562,7 @@ class AdminCourseControllerTest extends IntegrationTest {
 
     @Test
     void answersAnOnSaleCourseMovedToOnSaleWithoutChangingIt() {
-        long id = new StoredCourses(jdbc).insertOnSale(newSlug(), Instant.parse("2026-09-15T09:30:00Z"));
+        long id = courses().onSale(newSlug());
         String before = body(get(id));
 
         assertThat(changeStatus(id, "ON_SALE")).hasStatusOk().bodyJson().isStrictlyEqualTo(before);
@@ -629,6 +637,222 @@ class AdminCourseControllerTest extends IntegrationTest {
     }
 
     @Test
+    void setsAPublishedLessonOfTheCourseAsItsFreeLessonAndReadsItBack() {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        long lesson = courses().addPublishedLesson(courses().addModule(id, "Fundamentos"), "O que é uma API",
+                "o-que-e-uma-api", "three-seconds.mp4");
+
+        MvcTestResult result = put(id, fullDocument(slug, lesson));
+
+        assertThat(result).hasStatusOk().bodyJson()
+                .isLenientlyEqualTo(fullDocument(slug, lesson))
+                .isLenientlyEqualTo("""
+                        {"status": "DRAFT", "freeLessonId": %d, "readiness": {"comingSoon": [], "onSale": []}}"""
+                        .formatted(lesson));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(body(result));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("lessonsThatCannotBeFree")
+    void refusesAFreeLessonThatIsNotAPublishedLessonOfTheCourseAndChangesNothing(
+            String description, BiFunction<AdminCourses, Long, Long> lessonOf) {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        long lesson = lessonOf.apply(courses(), courses().addModule(id, "Fundamentos"));
+        assertThat(put(id, fullDocument(slug))).hasStatusOk();
+        String before = body(get(id));
+
+        MvcTestResult result = put(id, fullDocument(slug, lesson));
+
+        assertThat(result).hasStatus(HttpStatus.CONFLICT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson().isStrictlyEqualTo("""
+                        {
+                          "type": "https://aulaflix.com.br/problems/free-lesson-ineligible",
+                          "title": "Free lesson ineligible",
+                          "status": 409,
+                          "detail": "freeLessonId must name a published Lesson of this Course.",
+                          "instance": "/v1/admin/courses/%d",
+                          "timestamp": "%s"
+                        }""".formatted(id, clock.instant()));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    static Stream<Arguments> lessonsThatCannotBeFree() {
+        return Stream.of(
+                Arguments.of("an unpublished Lesson of the Course, with its video", lessonOf((courses, module) -> {
+                    long lesson = courses.addLesson(module, "O que é uma API", "o-que-e-uma-api");
+                    courses.linkVideo(lesson, "three-seconds.mp4");
+                    return lesson;
+                })),
+                Arguments.of("a published Lesson of another Course", lessonOf((courses, module) ->
+                        courses.addPublishedLesson(courses.addModule(courses.draft(newSlug()), "Fundamentos"),
+                                "O que é uma API", "o-que-e-uma-api", "three-seconds.mp4"))),
+                Arguments.of("an id no Lesson has", lessonOf((courses, module) -> 999999999999999999L)));
+    }
+
+    private static BiFunction<AdminCourses, Long, Long> lessonOf(BiFunction<AdminCourses, Long, Long> lessonOf) {
+        return lessonOf;
+    }
+
+    @Test
+    void launchesADraftStraightToOnSaleAndAnswersARepeatWithoutChangingIt() {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        long lesson = courses().addPublishedLesson(courses().addModule(id, "Fundamentos"), "O que é uma API",
+                "o-que-e-uma-api", "three-seconds.mp4");
+        assertThat(put(id, fullDocument(slug, lesson))).hasStatusOk();
+        clock.set(Instant.parse("2026-10-04T15:00:00.123456789Z"));
+
+        MvcTestResult launched = changeStatus(id, "ON_SALE");
+
+        assertThat(launched).hasStatusOk()
+                .hasContentType(MediaType.APPLICATION_JSON)
+                .bodyJson()
+                .doesNotHavePath("$.comingSoonAt")
+                .doesNotHavePath("$.readiness")
+                .isLenientlyEqualTo(fullDocument(slug, lesson))
+                .isLenientlyEqualTo("""
+                        {"id": %d, "status": "ON_SALE", "onSaleAt": "2026-10-04T15:00:00.123456Z"}"""
+                        .formatted(id));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(body(launched));
+
+        clock.set(Instant.parse("2026-10-04T16:00:00Z"));
+
+        assertThat(changeStatus(id, "ON_SALE")).hasStatusOk().bodyJson().isStrictlyEqualTo(body(launched));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(body(launched));
+    }
+
+    @Test
+    void launchesAComingSoonCourseKeepingWhenItWasAnnounced() {
+        clock.set(Instant.parse("2026-10-01T12:00:00Z"));
+        String slug = newSlug();
+        long id = announcedCourse(slug);
+        long lesson = courses().addPublishedLesson(courses().addModule(id, "Fundamentos"), "O que é uma API",
+                "o-que-e-uma-api", "three-seconds.mp4");
+        assertThat(put(id, fullDocument(slug, lesson))).hasStatusOk();
+        clock.set(Instant.parse("2026-10-04T15:00:00Z"));
+
+        assertThat(changeStatus(id, "ON_SALE")).hasStatusOk().bodyJson()
+                .doesNotHavePath("$.readiness")
+                .isLenientlyEqualTo("""
+                        {
+                          "status": "ON_SALE",
+                          "comingSoonAt": "2026-10-01T12:00:00Z",
+                          "onSaleAt": "2026-10-04T15:00:00Z",
+                          "freeLessonId": %d
+                        }""".formatted(lesson));
+    }
+
+    @Test
+    void refusesToLaunchAComingSoonCourseShortOfOnSaleListingEveryMissingFieldAndChangesNothing() {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        assertThat(put(id, JsonPath.parse(fullDocument(slug)).delete("$.priceCents").delete("$.maxInstallments")
+                .jsonString())).hasStatusOk();
+        assertThat(changeStatus(id, "COMING_SOON")).hasStatusOk();
+        String before = body(get(id));
+
+        assertRequirementsUnmet(changeStatus(id, "ON_SALE"), "/v1/admin/courses/%d/status".formatted(id),
+                List.of("priceCents", "maxInstallments", "freeLessonId"));
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void takesANewPriceAndAnotherFreeLessonWhileOnSale() {
+        String slug = newSlug();
+        long id = courses().onSale(slug);
+        long module = courses().addModule(id, "Rotas e respostas");
+        long lesson = courses().addPublishedLesson(module, "Rotas no Express", "rotas-no-express", "five-seconds.mp4");
+        String document = JsonPath.parse(fullDocument(slug, lesson))
+                .set("$.priceCents", 59700)
+                .set("$.pixDiscountPercent", 15)
+                .set("$.maxInstallments", 12)
+                .jsonString();
+
+        assertThat(put(id, document)).hasStatusOk().bodyJson()
+                .isLenientlyEqualTo(document)
+                .isLenientlyEqualTo("""
+                        {"status": "ON_SALE"}""");
+        assertThat(get(id)).bodyJson().isLenientlyEqualTo(document);
+    }
+
+    @Test
+    void takesAnEditThatKeepsAnOnSaleCourseFitWithoutItsPlannedTopics() {
+        String slug = newSlug();
+        long id = courses().onSale(slug);
+        String document = JsonPath.parse(fullDocument(slug, freeLessonOf(id)))
+                .set("$.plannedTopics", List.of())
+                .delete("$.pixDiscountPercent")
+                .jsonString();
+
+        assertThat(put(id, document)).hasStatusOk().bodyJson()
+                .doesNotHavePath("$.pixDiscountPercent")
+                .isLenientlyEqualTo(document);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("editsLeavingOnSaleShort")
+    void refusesAnEditThatLeavesAnOnSaleCourseShortOfItsStateListingWhatIsMissing(
+            String description, UnaryOperator<DocumentContext> edit, List<String> missing) {
+        String slug = newSlug();
+        long id = courses().onSale(slug);
+        String before = body(get(id));
+
+        MvcTestResult result = put(id, edit.apply(JsonPath.parse(fullDocument(slug, freeLessonOf(id)))
+                .set("$.title", "Backend com Node.js e Java")).jsonString());
+
+        assertRequirementsUnmet(result, "/v1/admin/courses/" + id, missing);
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    static Stream<Arguments> editsLeavingOnSaleShort() {
+        return Stream.of(
+                Arguments.of("no Free lesson", edit(document -> document.delete("$.freeLessonId")),
+                        List.of("freeLessonId")),
+                Arguments.of("null Free lesson", edit(document -> document.set("$.freeLessonId", null)),
+                        List.of("freeLessonId")),
+                Arguments.of("no price", edit(document -> document.delete("$.priceCents")), List.of("priceCents")),
+                Arguments.of("no max installments", edit(document -> document.delete("$.maxInstallments")),
+                        List.of("maxInstallments")),
+                Arguments.of("no about", edit(document -> document.set("$.about", List.of())), List.of("about")),
+                Arguments.of("nothing but the slug and title", edit(document -> JsonPath.parse(Map.of(
+                                "slug", document.read("$.slug"), "title", document.read("$.title")))),
+                        List.of("summary", "area", "icon", "tone", "about", "learn", "audience", "priceCents",
+                                "maxInstallments", "freeLessonId")));
+    }
+
+    @Test
+    void refusesAPriceNotDivisibleByTheMaximumInstallmentsWhileOnSaleAndChangesNothing() {
+        String slug = newSlug();
+        long id = courses().onSale(slug);
+        String before = body(get(id));
+
+        MvcTestResult result = put(id, JsonPath.parse(fullDocument(slug, freeLessonOf(id)))
+                .set("$.priceCents", 49701)
+                .jsonString());
+
+        assertThat(result).hasStatus(HttpStatus.CONFLICT).bodyJson().extractingPath("$.type")
+                .isEqualTo("https://aulaflix.com.br/problems/price-not-divisible-by-installments");
+        assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
+    }
+
+    @Test
+    void deletesADraftWithItsPublishedFreeLessonAndItsVideo() {
+        String slug = newSlug();
+        long id = idOf(create(slug, "Backend"));
+        long lesson = courses().addPublishedLesson(courses().addModule(id, "Fundamentos"), "O que é uma API",
+                "o-que-e-uma-api", "three-seconds.mp4");
+        assertThat(put(id, fullDocument(slug, lesson))).hasStatusOk();
+
+        assertThat(delete(id)).hasStatus(HttpStatus.NO_CONTENT);
+
+        assertCourseNotFound(get(id), "/v1/admin/courses/" + id);
+        assertThat(storedVideos.keysOf(lesson)).isEmpty();
+    }
+
+    @Test
     void refusesToChangeTheSlugOfAComingSoonCourseAndChangesNothing() {
         long id = announcedCourse(newSlug());
         String before = body(get(id));
@@ -639,10 +863,10 @@ class AdminCourseControllerTest extends IntegrationTest {
 
     @Test
     void refusesToChangeTheSlugOfAnOnSaleCourseAndChangesNothing() {
-        long id = new StoredCourses(jdbc).insertOnSale(newSlug(), Instant.parse("2026-09-15T09:30:00Z"));
+        long id = courses().onSale(newSlug());
         String before = body(get(id));
 
-        assertSlugFrozen(put(id, fullDocument(newSlug())), id);
+        assertSlugFrozen(put(id, fullDocument(newSlug(), freeLessonOf(id))), id);
         assertThat(get(id)).bodyJson().isStrictlyEqualTo(before);
     }
 
@@ -913,6 +1137,21 @@ class AdminCourseControllerTest extends IntegrationTest {
                         }""".formatted(id, clock.instant()));
     }
 
+    private void assertRequirementsUnmet(MvcTestResult result, String path, List<String> missing) {
+        assertThat(result).hasStatus(HttpStatus.CONFLICT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson().isStrictlyEqualTo("""
+                        {
+                          "type": "https://aulaflix.com.br/problems/course-requirements-unmet",
+                          "title": "Course requirements unmet",
+                          "status": 409,
+                          "detail": "A Course must have every field its state needs; missing lists those it lacks.",
+                          "instance": "%s",
+                          "timestamp": "%s",
+                          "missing": %s
+                        }""".formatted(path, clock.instant(), JsonPath.parse(missing).jsonString()));
+    }
+
     private void assertCourseNotFound(MvcTestResult result, String path) {
         assertThat(result).hasStatus(HttpStatus.NOT_FOUND)
                 .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
@@ -946,6 +1185,19 @@ class AdminCourseControllerTest extends IntegrationTest {
                   "pixDiscountPercent": 10,
                   "maxInstallments": 10
                 }""".formatted(slug);
+    }
+
+    /** {@link #fullDocument} with the Free lesson set, ready to go On sale too. */
+    private static String fullDocument(String slug, long freeLessonId) {
+        return JsonPath.parse(fullDocument(slug)).put("$", "freeLessonId", freeLessonId).jsonString();
+    }
+
+    private AdminCourses courses() {
+        return new AdminCourses(mvc, token, storedVideos);
+    }
+
+    private long freeLessonOf(long id) {
+        return ((Number) JsonPath.read(body(get(id)), "$.freeLessonId")).longValue();
     }
 
     /** A Course moved to Coming soon through the API, from a document with every field set. */

@@ -77,7 +77,12 @@ public record CourseDocument(
         @Max(value = 12, message = "out-of-range")
         @Schema(description = "The most interest-free card installments; `priceCents` must divide by it exactly",
                 example = "10")
-        Integer maxInstallments) {
+        Integer maxInstallments,
+
+        @Schema(description = """
+                The one Lesson anyone may watch, Visitors included: a published Lesson of this Course, from any \
+                Module. Once the Course is On sale it can move to another, but never be cleared""", example = "21")
+        Long freeLessonId) {
 
     /** Lower-case words of letters and digits joined by single hyphens, as the web's URLs carry them. */
     public static final String SLUG_PATTERN = "[a-z0-9]+(-[a-z0-9]+)*";

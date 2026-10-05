@@ -133,6 +133,12 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 request, new HttpHeaders(), Map.of("missing", refusal.missing()));
     }
 
+    @ExceptionHandler(FreeLessonIneligibleException.class)
+    ResponseEntity<Object> freeLessonIneligible(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "free-lesson-ineligible", "Free lesson ineligible",
+                "freeLessonId must name a published Lesson of this Course."), request);
+    }
+
     @ExceptionHandler(ModuleNotEmptyException.class)
     ResponseEntity<Object> moduleNotEmpty(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "module-not-empty", "Module not empty",
@@ -149,6 +155,24 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<Object> lessonSlugTaken(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "lesson-slug-taken", "Lesson slug taken",
                 "Another Lesson of this Course already has this slug."), request);
+    }
+
+    @ExceptionHandler(LessonSlugFrozenException.class)
+    ResponseEntity<Object> lessonSlugFrozen(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "lesson-slug-frozen", "Lesson slug frozen",
+                "The slug of a published Lesson never changes."), request);
+    }
+
+    @ExceptionHandler(LessonPublishedException.class)
+    ResponseEntity<Object> lessonPublished(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "lesson-published", "Lesson published",
+                "A published Lesson is never deleted."), request);
+    }
+
+    @ExceptionHandler(VideoRequiredException.class)
+    ResponseEntity<Object> videoRequired(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "video-required", "Video required",
+                "A Lesson is published only with a video: upload one and link it first."), request);
     }
 
     @ExceptionHandler(VideoNotFoundException.class)

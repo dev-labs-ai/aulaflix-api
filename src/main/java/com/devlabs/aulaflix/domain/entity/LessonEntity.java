@@ -1,5 +1,7 @@
 package com.devlabs.aulaflix.domain.entity;
 
+import java.time.Instant;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -42,6 +44,9 @@ public class LessonEntity {
 
     @Column(name = "duration_seconds")
     private Integer durationSeconds;
+
+    @Column(name = "published_at")
+    private Instant publishedAt;
 
     protected LessonEntity() {
     }
@@ -109,5 +114,19 @@ public class LessonEntity {
     public void linkVideo(String videoObjectKey, int durationSeconds) {
         this.videoObjectKey = videoObjectKey;
         this.durationSeconds = durationSeconds;
+    }
+
+    public boolean isPublished() {
+        return publishedAt != null;
+    }
+
+    /** When the Lesson was published, or null while it shows as "Em breve". */
+    public Instant getPublishedAt() {
+        return publishedAt;
+    }
+
+    /** Publishes the Lesson as of the instant, for good; whether it may be published is the service's call. */
+    public void publish(Instant at) {
+        this.publishedAt = at;
     }
 }

@@ -26,7 +26,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import com.devlabs.aulaflix.AdminApi;
+import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.IntegrationTest;
+import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.service.AccountService;
 import com.jayway.jsonpath.JsonPath;
 
@@ -42,6 +44,9 @@ class AdminOutlineLogsTest extends IntegrationTest {
 
     @Autowired
     private AccountService accounts;
+
+    @Autowired
+    private StoredVideos storedVideos;
 
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
@@ -94,6 +99,25 @@ class AdminOutlineLogsTest extends IntegrationTest {
         assertNamesOnly(infoLinesOf(() -> send(HttpMethod.DELETE, "/v1/admin/modules/" + module, "")), admin,
                 module);
         assertThat(infoLinesOf(() -> send(HttpMethod.DELETE, "/v1/admin/modules/" + module, ""))).isEmpty();
+    }
+
+    @Test
+    void logsOneInfoLineNamingTheAdminAndTheLessonForAPublicationAndNoneForARepeatOrARefusal() {
+        String email = "admin-" + UUID.randomUUID() + "@aulaflix.com.br";
+        long admin = accounts.createAdmin(email, "Ana", PASSWORD).id();
+        token = new AdminApi(mvc).sessionToken(email, PASSWORD);
+        AdminCourses courses = new AdminCourses(mvc, token, storedVideos);
+        long lesson = courses.lessonOfANewDraft();
+        String publication = "/v1/admin/lessons/%d/status".formatted(lesson);
+
+        assertThat(infoLinesOf(() -> send(HttpMethod.PUT, publication, "{\"status\": \"PUBLISHED\"}"))).isEmpty();
+        courses.linkVideo(lesson, "three-seconds.mp4");
+        assertNamesOnly(infoLinesOf(() -> send(HttpMethod.PUT, publication, "{\"status\": \"PUBLISHED\"}")), admin,
+                lesson);
+        assertThat(infoLinesOf(() -> send(HttpMethod.PUT, publication, "{\"status\": \"PUBLISHED\"}"))).isEmpty();
+        assertThat(infoLinesOf(() -> send(HttpMethod.DELETE, "/v1/admin/lessons/" + lesson, ""))).isEmpty();
+        assertThat(infoLinesOf(() -> send(HttpMethod.PUT, "/v1/admin/lessons/" + lesson,
+                "{\"title\": \"APIs\", \"slug\": \"apis\"}"))).isEmpty();
     }
 
     /** One line, whose values are exactly the ids given. */

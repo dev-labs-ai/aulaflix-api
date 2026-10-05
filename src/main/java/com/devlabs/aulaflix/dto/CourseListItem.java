@@ -20,6 +20,13 @@ public record CourseListItem(
         @Schema(allowableValues = {"COMING_SOON", "ON_SALE"})
         CourseStatus status,
 
+        @Schema(description = "Only while the Course is On sale")
+        CoursePricing pricing,
+
+        @Schema(description = "How many Lessons the Course has, \"Em breve\" ones included; only while it is On sale",
+                example = "12")
+        Integer lessonCount,
+
         @Schema(description = "How many Planned topics the Course announces; only while it is Coming soon")
         Integer plannedTopicCount) {
 }

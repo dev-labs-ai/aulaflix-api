@@ -30,6 +30,7 @@ public record AdminCourse(
         Integer priceCents,
         Integer pixDiscountPercent,
         Integer maxInstallments,
+        Long freeLessonId,
         CourseStatus status,
 
         @Schema(description = "Left out once the Course is On sale, with no state left to move to")

@@ -1,5 +1,7 @@
 package com.devlabs.aulaflix.service;
 
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -23,9 +25,12 @@ import com.devlabs.aulaflix.dto.LessonRequest;
 import com.devlabs.aulaflix.dto.ModuleRequest;
 import com.devlabs.aulaflix.dto.OutlineModule;
 import com.devlabs.aulaflix.exception.CourseNotFoundException;
+import com.devlabs.aulaflix.exception.LessonPublishedException;
+import com.devlabs.aulaflix.exception.LessonSlugFrozenException;
 import com.devlabs.aulaflix.exception.LessonSlugTakenException;
 import com.devlabs.aulaflix.exception.ModuleNotEmptyException;
 import com.devlabs.aulaflix.exception.OutlineMismatchException;
+import com.devlabs.aulaflix.exception.VideoRequiredException;
 import com.devlabs.aulaflix.repository.CourseRepository;
 import com.devlabs.aulaflix.repository.LessonRepository;
 import com.devlabs.aulaflix.repository.ModuleRepository;
@@ -44,14 +49,16 @@ public class OutlineService {
     private final LessonRepository lessons;
     private final CatalogLocks locks;
     private final ApplicationEventPublisher events;
+    private final Clock clock;
 
     public OutlineService(CourseRepository courses, ModuleRepository modules, LessonRepository lessons,
-                          CatalogLocks locks, ApplicationEventPublisher events) {
+                          CatalogLocks locks, ApplicationEventPublisher events, Clock clock) {
         this.courses = courses;
         this.modules = modules;
         this.lessons = lessons;
         this.locks = locks;
         this.events = events;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -122,22 +129,41 @@ public class OutlineService {
     @Transactional
     public AdminLesson editLesson(long adminId, String lessonId, LessonRequest request) {
         LessonEntity lesson = locks.lesson(lessonId);
-        if (!lesson.getSlug().equals(request.slug())) {
-            requireFreeSlug(lesson.getCourse().getId(), request.slug());
-        }
+        requireSlugChangeAllowed(lesson, request.slug());
         lesson.setTitle(request.title());
         lesson.setSlug(request.slug());
         log.info("Admin {} edited Lesson {}", adminId, lesson.getId());
         return lessonView(lesson);
     }
 
-    /** Its videos go once the deletion commits. */
+    /** Only a Lesson never published, which no Student has seen; its videos go once the deletion commits. */
     @Transactional
     public void deleteLesson(long adminId, String lessonId) {
         LessonEntity lesson = locks.lesson(lessonId);
+        if (lesson.isPublished()) {
+            throw new LessonPublishedException();
+        }
         lessons.delete(lesson);
         events.publishEvent(new LessonsDeleted(List.of(lesson.getId())));
         log.info("Admin {} deleted Lesson {}", adminId, lesson.getId());
+    }
+
+    /**
+     * Publishing a published Lesson changes nothing, so a retry is harmless. The instant is cut to the microseconds
+     * PostgreSQL keeps, so that the answer shows what every later read will.
+     */
+    @Transactional
+    public AdminLesson publishLesson(long adminId, String lessonId) {
+        LessonEntity lesson = locks.lesson(lessonId);
+        if (lesson.isPublished()) {
+            return lessonView(lesson);
+        }
+        if (lesson.getVideoObjectKey() == null) {
+            throw new VideoRequiredException();
+        }
+        lesson.publish(clock.instant().truncatedTo(ChronoUnit.MICROS));
+        log.info("Admin {} published Lesson {}", adminId, lesson.getId());
+        return lessonView(lesson);
     }
 
     /** Every current Module and Lesson, each named once: none left out, none added, none twice. */
@@ -160,6 +186,17 @@ public class OutlineService {
             lesson.setModule(module);
             lesson.setPosition(index);
         }
+    }
+
+    /** The slug is the web's address for a published Lesson, so it stays put once the Lesson is published. */
+    private void requireSlugChangeAllowed(LessonEntity lesson, String slug) {
+        if (lesson.getSlug().equals(slug)) {
+            return;
+        }
+        if (lesson.isPublished()) {
+            throw new LessonSlugFrozenException();
+        }
+        requireFreeSlug(lesson.getCourse().getId(), slug);
     }
 
     private void requireFreeSlug(long courseId, String slug) {
@@ -189,6 +226,6 @@ public class OutlineService {
 
     static AdminLesson lessonView(LessonEntity lesson) {
         return new AdminLesson(lesson.getId(), lesson.getModule().getId(), lesson.getTitle(), lesson.getSlug(),
-                lesson.getDurationSeconds());
+                lesson.getDurationSeconds(), lesson.isPublished(), lesson.getPublishedAt());
     }
 }

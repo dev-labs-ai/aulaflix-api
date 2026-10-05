@@ -123,7 +123,8 @@ class AdminVideoControllerTest extends IntegrationTest {
                           "moduleId": %d,
                           "title": "O que é uma API",
                           "slug": "o-que-e-uma-api",
-                          "durationSeconds": 3
+                          "durationSeconds": 3,
+                          "published": false
                         }""".formatted(lesson, module));
         assertThat(storedVideos.keysOf(lesson)).containsExactly(objectKey);
         assertThat(pathOf(playbackUrlOf(lesson))).isEqualTo("/videos/" + objectKey);
@@ -145,9 +146,23 @@ class AdminVideoControllerTest extends IntegrationTest {
     void leavesTheLessonUnpublished() {
         long lesson = createLesson();
         assertThat(link(lesson, upload(lesson, "three-seconds.mp4"))).hasStatusOk()
-                .bodyJson().doesNotHavePath("$.published");
+                .bodyJson().doesNotHavePath("$.publishedAt")
+                .extractingPath("$.published").isEqualTo(false);
 
         assertThat(delete("/v1/admin/lessons/" + lesson)).hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void replacesThePublishedLessonsVideoAndKeepsItPublished() {
+        long lesson = createLesson();
+        AdminCourses courses = new AdminCourses(mvc, token, storedVideos);
+        courses.linkVideo(lesson, "three-seconds.mp4");
+        courses.publish(lesson);
+        String objectKey = upload(lesson, "five-seconds.mp4");
+
+        assertThat(link(lesson, objectKey)).hasStatusOk().bodyJson().isLenientlyEqualTo("""
+                {"durationSeconds": 5, "published": true}""");
+        assertThat(storedVideos.keysOf(lesson)).containsExactly(objectKey);
     }
 
     @Test

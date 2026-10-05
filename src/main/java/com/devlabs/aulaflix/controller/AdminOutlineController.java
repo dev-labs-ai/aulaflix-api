@@ -31,6 +31,7 @@ import com.devlabs.aulaflix.dto.AdminLesson;
 import com.devlabs.aulaflix.dto.AdminModule;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.dto.LessonRequest;
+import com.devlabs.aulaflix.dto.LessonStatusChange;
 import com.devlabs.aulaflix.dto.ModuleRequest;
 import com.devlabs.aulaflix.dto.OutlineModule;
 import com.devlabs.aulaflix.service.OutlineService;
@@ -141,13 +142,15 @@ public class AdminOutlineController {
 
     @PutMapping("/lessons/{lessonId}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Edit a Lesson", description = "Its title and slug. Its place in the outline stays as it is.")
+    @Operation(summary = "Edit a Lesson", description = """
+            Its title, and its slug until it is published. Its place in the outline stays as it is.""")
     @ApiResponse(responseCode = "200", description = "The Lesson as it now is",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = AdminLesson.class)))
     @ApiResponse(responseCode = "400", description = "`invalid-request`, with a code for each field in `errors`")
     @ApiResponse(responseCode = "404", description = "`lesson-not-found`")
-    @ApiResponse(responseCode = "409", description = "`lesson-slug-taken`")
+    @ApiResponse(responseCode = "409", description = """
+            `lesson-slug-taken`, or `lesson-slug-frozen` once the Lesson is published: its title may still change""")
     public AdminLesson editLesson(@AuthenticationPrincipal AuthenticatedAccount admin, @PathVariable String lessonId,
                                   @Valid @RequestBody LessonRequest request) {
         return outlines.editLesson(admin.accountId(), lessonId, request);
@@ -155,12 +158,33 @@ public class AdminOutlineController {
 
     @DeleteMapping("/lessons/{lessonId}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Delete an unpublished Lesson")
+    @Operation(summary = "Delete an unpublished Lesson",
+            description = "Only a Lesson never published, with its videos: a published Lesson stays.")
     @ApiResponse(responseCode = "204", description = "Deleted")
     @ApiResponse(responseCode = "404", description = "`lesson-not-found`")
+    @ApiResponse(responseCode = "409", description = "`lesson-published`")
     public ResponseEntity<Void> deleteLesson(@AuthenticationPrincipal AuthenticatedAccount admin,
                                              @PathVariable String lessonId) {
         outlines.deleteLesson(admin.accountId(), lessonId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/lessons/{lessonId}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Publish a Lesson", description = """
+            Once published, a Lesson shows in its Course's Syllabus with its slug and duration, and is never \
+            unpublished nor deleted; its slug is frozen, but its video can still be replaced. It needs a linked video. \
+            Publishing a published Lesson changes nothing, so a retry is harmless.""")
+    @ApiResponse(responseCode = "200", description = "The Lesson as it now is",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = AdminLesson.class)))
+    @ApiResponse(responseCode = "400", description = """
+            `invalid-request`, with a code for each field in `errors`: `PUBLISHED` is the only status""")
+    @ApiResponse(responseCode = "404", description = "`lesson-not-found`")
+    @ApiResponse(responseCode = "409", description = "`video-required`: the Lesson has no video yet")
+    public AdminLesson publishLesson(@AuthenticationPrincipal AuthenticatedAccount admin,
+                                     @PathVariable String lessonId,
+                                     @Valid @RequestBody LessonStatusChange change) {
+        return outlines.publishLesson(admin.accountId(), lessonId);
     }
 }

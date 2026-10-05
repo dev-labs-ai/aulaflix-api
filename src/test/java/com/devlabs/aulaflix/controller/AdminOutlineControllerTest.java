@@ -4,6 +4,7 @@ import static com.devlabs.aulaflix.AdminApi.body;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +27,9 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.devlabs.aulaflix.AdminApi;
+import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.IntegrationTest;
+import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.service.AccountService;
 import com.jayway.jsonpath.JsonPath;
 
@@ -35,6 +39,9 @@ class AdminOutlineControllerTest extends IntegrationTest {
 
     @Autowired
     private AccountService accounts;
+
+    @Autowired
+    private StoredVideos storedVideos;
 
     private String token;
 
@@ -82,8 +89,13 @@ class AdminOutlineControllerTest extends IntegrationTest {
         assertThat(first).hasHeader(HttpHeaders.LOCATION, "/v1/admin/lessons/" + firstId)
                 .hasContentType(MediaType.APPLICATION_JSON)
                 .bodyJson().isStrictlyEqualTo("""
-                        {"id": %d, "moduleId": %d, "title": "O que é uma API", "slug": "o-que-e-uma-api"}"""
-                        .formatted(firstId, fundamentos));
+                        {
+                          "id": %d,
+                          "moduleId": %d,
+                          "title": "O que é uma API",
+                          "slug": "o-que-e-uma-api",
+                          "published": false
+                        }""".formatted(firstId, fundamentos));
         assertThat(outline(courseId)).hasStatusOk().bodyJson().isStrictlyEqualTo("""
                 [
                   {"moduleId": %d, "lessonIds": [%d, %d]},
@@ -171,8 +183,13 @@ class AdminOutlineControllerTest extends IntegrationTest {
         assertThat(editLesson(lesson, "O que é uma API REST", "o-que-e-uma-api-rest")).hasStatusOk()
                 .hasContentType(MediaType.APPLICATION_JSON)
                 .bodyJson().isStrictlyEqualTo("""
-                        {"id": %d, "moduleId": %d, "title": "O que é uma API REST", "slug": "o-que-e-uma-api-rest"}"""
-                        .formatted(lesson, module));
+                        {
+                          "id": %d,
+                          "moduleId": %d,
+                          "title": "O que é uma API REST",
+                          "slug": "o-que-e-uma-api-rest",
+                          "published": false
+                        }""".formatted(lesson, module));
         assertLessonSlugTaken(addLesson(module, "Outra aula", "o-que-e-uma-api-rest"),
                 "/v1/admin/modules/%d/lessons".formatted(module));
         assertThat(addLesson(module, "O que é uma API", "o-que-e-uma-api")).hasStatus(HttpStatus.CREATED);
@@ -185,8 +202,13 @@ class AdminOutlineControllerTest extends IntegrationTest {
 
         assertThat(editLesson(lesson, "O que é uma API REST", "o-que-e-uma-api")).hasStatusOk()
                 .bodyJson().isStrictlyEqualTo("""
-                        {"id": %d, "moduleId": %d, "title": "O que é uma API REST", "slug": "o-que-e-uma-api"}"""
-                        .formatted(lesson, module));
+                        {
+                          "id": %d,
+                          "moduleId": %d,
+                          "title": "O que é uma API REST",
+                          "slug": "o-que-e-uma-api",
+                          "published": false
+                        }""".formatted(lesson, module));
     }
 
     @Test
@@ -218,6 +240,105 @@ class AdminOutlineControllerTest extends IntegrationTest {
         assertLessonNotFound(editLesson(first, "O que é uma API", "o-que-e-uma-api"), path);
         assertLessonNotFound(deleteLesson(first), path);
         assertThat(addLesson(module, "O que é uma API", "o-que-e-uma-api")).hasStatus(HttpStatus.CREATED);
+    }
+
+    @Test
+    void publishesALessonWithALinkedVideoAndAnswersARepeatWithoutChangingIt() {
+        long module = idOf(addModule(createCourse(), "Fundamentos"));
+        long lesson = idOf(addLesson(module, "O que é uma API", "o-que-e-uma-api"));
+        courses().linkVideo(lesson, "three-seconds.mp4");
+        clock.set(Instant.parse("2026-10-04T10:00:00.123456789Z"));
+
+        MvcTestResult published = publish(lesson);
+
+        String expected = """
+                {
+                  "id": %d,
+                  "moduleId": %d,
+                  "title": "O que é uma API",
+                  "slug": "o-que-e-uma-api",
+                  "durationSeconds": 3,
+                  "published": true,
+                  "publishedAt": "2026-10-04T10:00:00.123456Z"
+                }""".formatted(lesson, module);
+        assertThat(published).hasStatusOk().hasContentType(MediaType.APPLICATION_JSON)
+                .bodyJson().isStrictlyEqualTo(expected);
+        assertThat(editLesson(lesson, "O que é uma API", "o-que-e-uma-api")).bodyJson().isStrictlyEqualTo(expected);
+
+        clock.set(Instant.parse("2026-10-04T11:00:00Z"));
+
+        assertThat(publish(lesson)).hasStatusOk().bodyJson().isStrictlyEqualTo(expected);
+        assertThat(editLesson(lesson, "O que é uma API", "o-que-e-uma-api")).bodyJson().isStrictlyEqualTo(expected);
+    }
+
+    @Test
+    void refusesToPublishALessonWithoutAVideoAndChangesNothing() {
+        long module = idOf(addModule(createCourse(), "Fundamentos"));
+        long lesson = idOf(addLesson(module, "O que é uma API", "o-que-e-uma-api"));
+        String path = "/v1/admin/lessons/%d/status".formatted(lesson);
+
+        assertProblem(publish(lesson), path, HttpStatus.CONFLICT, "video-required", "Video required",
+                "A Lesson is published only with a video: upload one and link it first.");
+        assertThat(editLesson(lesson, "O que é uma API", "o-que-e-uma-api")).bodyJson()
+                .extractingPath("$.published").isEqualTo(false);
+        assertThat(deleteLesson(lesson)).hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "no status            | {}                          | required",
+            "null status          | {\"status\": null}          | required",
+            "unpublished          | {\"status\": \"UNPUBLISHED\"} | invalid-format",
+            "status in lower case | {\"status\": \"published\"}   | invalid-format"})
+    void refusesAPublicationWithoutTheOnlyStatusALessonMovesTo(String description, String request, String code) {
+        long lesson = idOf(addLesson(idOf(addModule(createCourse(), "Fundamentos")), "O que é uma API",
+                "o-que-e-uma-api"));
+        courses().linkVideo(lesson, "three-seconds.mp4");
+
+        assertInvalidRequest(put("/v1/admin/lessons/%d/status".formatted(lesson), request),
+                "/v1/admin/lessons/%d/status".formatted(lesson), "status", code);
+        assertThat(editLesson(lesson, "O que é uma API", "o-que-e-uma-api")).bodyJson()
+                .extractingPath("$.published").isEqualTo(false);
+    }
+
+    @Test
+    void neverUnpublishesALesson() {
+        long module = idOf(addModule(createCourse(), "Fundamentos"));
+        long lesson = courses().addPublishedLesson(module, "O que é uma API", "o-que-e-uma-api", "three-seconds.mp4");
+
+        assertThat(put("/v1/admin/lessons/%d/status".formatted(lesson), "{\"status\": \"UNPUBLISHED\"}"))
+                .hasStatus(HttpStatus.BAD_REQUEST);
+        assertThat(editLesson(lesson, "O que é uma API", "o-que-e-uma-api")).bodyJson()
+                .extractingPath("$.published").isEqualTo(true);
+    }
+
+    @Test
+    void refusesToDeleteAPublishedLessonAndChangesNothing() {
+        long courseId = createCourse();
+        long module = idOf(addModule(courseId, "Fundamentos"));
+        long lesson = courses().addPublishedLesson(module, "O que é uma API", "o-que-e-uma-api", "three-seconds.mp4");
+        String before = body(editLesson(lesson, "O que é uma API", "o-que-e-uma-api"));
+
+        assertProblem(deleteLesson(lesson), "/v1/admin/lessons/" + lesson, HttpStatus.CONFLICT, "lesson-published",
+                "Lesson published", "A published Lesson is never deleted.");
+        assertThat(outline(courseId)).bodyJson().isStrictlyEqualTo("""
+                [{"moduleId": %d, "lessonIds": [%d]}]""".formatted(module, lesson));
+        assertThat(editLesson(lesson, "O que é uma API", "o-que-e-uma-api")).bodyJson().isStrictlyEqualTo(before);
+        assertThat(storedVideos.keysOf(lesson)).hasSize(1);
+    }
+
+    @Test
+    void refusesToChangeAPublishedLessonsSlugAndChangesNothingButTakesANewTitle() {
+        long module = idOf(addModule(createCourse(), "Fundamentos"));
+        long lesson = courses().addPublishedLesson(module, "O que é uma API", "o-que-e-uma-api", "three-seconds.mp4");
+
+        assertProblem(editLesson(lesson, "O que é uma API REST", "o-que-e-uma-api-rest"),
+                "/v1/admin/lessons/" + lesson, HttpStatus.CONFLICT, "lesson-slug-frozen", "Lesson slug frozen",
+                "The slug of a published Lesson never changes.");
+        assertThat(addLesson(module, "Outra aula", "o-que-e-uma-api-rest")).hasStatus(HttpStatus.CREATED);
+        assertThat(editLesson(lesson, "O que é uma API REST", "o-que-e-uma-api")).hasStatusOk()
+                .bodyJson().isLenientlyEqualTo("""
+                        {"title": "O que é uma API REST", "slug": "o-que-e-uma-api", "published": true}""");
     }
 
     @Test
@@ -431,6 +552,7 @@ class AdminOutlineControllerTest extends IntegrationTest {
         assertModuleNotFound(post(module + "/lessons", lessonRequest), module + "/lessons");
         assertLessonNotFound(put(lesson, lessonRequest), lesson);
         assertLessonNotFound(delete(lesson), lesson);
+        assertLessonNotFound(put(lesson + "/status", "{\"status\": \"PUBLISHED\"}"), lesson + "/status");
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -485,7 +607,8 @@ class AdminOutlineControllerTest extends IntegrationTest {
                 Arguments.of(HttpMethod.DELETE, "/v1/admin/modules/{moduleId}", ""),
                 Arguments.of(HttpMethod.POST, "/v1/admin/modules/{moduleId}/lessons", lessonRequest),
                 Arguments.of(HttpMethod.PUT, "/v1/admin/lessons/{lessonId}", lessonRequest),
-                Arguments.of(HttpMethod.DELETE, "/v1/admin/lessons/{lessonId}", ""));
+                Arguments.of(HttpMethod.DELETE, "/v1/admin/lessons/{lessonId}", ""),
+                Arguments.of(HttpMethod.PUT, "/v1/admin/lessons/{lessonId}/status", "{\"status\": \"PUBLISHED\"}"));
     }
 
     private static URI expand(String path, long courseId, long moduleId, long lessonId) {
@@ -654,6 +777,14 @@ class AdminOutlineControllerTest extends IntegrationTest {
 
     private MvcTestResult deleteLesson(long lessonId) {
         return delete("/v1/admin/lessons/" + lessonId);
+    }
+
+    private MvcTestResult publish(long lessonId) {
+        return put("/v1/admin/lessons/%d/status".formatted(lessonId), "{\"status\": \"PUBLISHED\"}");
+    }
+
+    private AdminCourses courses() {
+        return new AdminCourses(mvc, token, storedVideos);
     }
 
     private MvcTestResult outline(long courseId) {

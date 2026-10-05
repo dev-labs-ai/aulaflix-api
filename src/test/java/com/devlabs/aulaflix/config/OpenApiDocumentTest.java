@@ -151,7 +151,9 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertResponses("/v1/admin/modules/{moduleId}/lessons", "post",
                 "201", "400", "401", "403", "404", "409", "500");
         assertResponses("/v1/admin/lessons/{lessonId}", "put", "200", "400", "401", "403", "404", "409", "500");
-        assertResponses("/v1/admin/lessons/{lessonId}", "delete", "204", "401", "403", "404", "500");
+        assertResponses("/v1/admin/lessons/{lessonId}", "delete", "204", "401", "403", "404", "409", "500");
+        assertResponses("/v1/admin/lessons/{lessonId}/status", "put",
+                "200", "400", "401", "403", "404", "409", "500");
     }
 
     @Test
@@ -214,6 +216,27 @@ class OpenApiDocumentTest extends IntegrationTest {
                     "/v1/admin/lessons/{lessonId}": {
                       "put": {"tags": ["Admin outline"], "security": [{"bearer": []}]},
                       "delete": {"tags": ["Admin outline"], "security": [{"bearer": []}]}
+                    },
+                    "/v1/admin/lessons/{lessonId}/status": {
+                      "put": {
+                        "tags": ["Admin outline"],
+                        "security": [{"bearer": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/LessonStatusChange"}}
+                          }
+                        },
+                        "responses": {
+                          "200": {
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminLesson"}}}
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "components": {
+                    "schemas": {
+                      "LessonStatusChange": {"properties": {"status": {"enum": ["PUBLISHED"]}}}
                     }
                   }
                 }""");
@@ -331,6 +354,46 @@ class OpenApiDocumentTest extends IntegrationTest {
                   }
                 }""");
         assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().doesNotHavePath("$.paths['/v1/courses']");
+    }
+
+    @Test
+    void documentsThePricingAndTheSyllabusOfAnOnSaleCourse() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "components": {
+                    "schemas": {
+                      "CourseListItem": {
+                        "properties": {
+                          "pricing": {"$ref": "#/components/schemas/CoursePricing"},
+                          "lessonCount": {"type": "integer"}
+                        }
+                      },
+                      "CourseDetail": {
+                        "properties": {
+                          "pricing": {"$ref": "#/components/schemas/CoursePricing"},
+                          "freeLessonId": {"type": "integer"},
+                          "modules": {"type": "array", "items": {"$ref": "#/components/schemas/SyllabusModule"}}
+                        }
+                      },
+                      "SyllabusModule": {
+                        "properties": {
+                          "lessons": {"type": "array", "items": {"$ref": "#/components/schemas/SyllabusLesson"}}
+                        }
+                      },
+                      "SyllabusLesson": {
+                        "properties": {
+                          "published": {"type": "boolean"},
+                          "slug": {"type": "string"},
+                          "durationSeconds": {"type": "integer"}
+                        }
+                      }
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.CoursePricing.properties").asMap()
+                .containsOnlyKeys("priceCents", "pixDiscountPercent", "pixPriceCents", "maxInstallments",
+                        "installmentCents");
     }
 
     @Test

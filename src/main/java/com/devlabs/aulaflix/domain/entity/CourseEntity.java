@@ -80,6 +80,9 @@ public class CourseEntity {
     @Column(name = "max_installments")
     private Integer maxInstallments;
 
+    @Column(name = "free_lesson_id")
+    private Long freeLessonId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private CourseStatus status;
@@ -219,6 +222,15 @@ public class CourseEntity {
 
     public void setMaxInstallments(Integer maxInstallments) {
         this.maxInstallments = maxInstallments;
+    }
+
+    /** The id of the one published Lesson of this Course that anyone may watch, or null while it has none. */
+    public Long getFreeLessonId() {
+        return freeLessonId;
+    }
+
+    public void setFreeLessonId(Long freeLessonId) {
+        this.freeLessonId = freeLessonId;
     }
 
     public CourseStatus getStatus() {

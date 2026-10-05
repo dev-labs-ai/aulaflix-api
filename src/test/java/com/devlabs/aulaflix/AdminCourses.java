@@ -3,6 +3,7 @@ package com.devlabs.aulaflix;
 import static com.devlabs.aulaflix.AdminApi.body;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
@@ -21,10 +22,17 @@ public final class AdminCourses {
 
     private final MockMvcTester mvc;
     private final String bearer;
+    private final StoredVideos videos;
 
     public AdminCourses(MockMvcTester mvc, String adminToken) {
+        this(mvc, adminToken, null);
+    }
+
+    /** With the storage, where uploads go the way the Admin's curl sends them, so Lessons can be published. */
+    public AdminCourses(MockMvcTester mvc, String adminToken, StoredVideos videos) {
         this.mvc = mvc;
         this.bearer = "Bearer " + adminToken;
+        this.videos = videos;
     }
 
     /** A Draft with nothing but its slug and title. */
@@ -41,23 +49,40 @@ public final class AdminCourses {
     /** A Draft whose document is {@link #fullDocument}. */
     public long completeDraft(String slug) {
         long id = draft(slug);
-        assertThat(mvc.put().uri("/v1/admin/courses/" + id)
-                .header(HttpHeaders.AUTHORIZATION, bearer)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(fullDocument(slug)))
-                .hasStatusOk();
+        putDocument(id, fullDocument(slug));
         return id;
     }
 
     /** A Course moved to Coming soon from {@link #fullDocument}, as of the application's clock. */
     public long announced(String slug) {
         long id = completeDraft(slug);
-        assertThat(mvc.put().uri("/v1/admin/courses/" + id + "/status")
-                .header(HttpHeaders.AUTHORIZATION, bearer)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"status\": \"COMING_SOON\"}"))
-                .hasStatusOk();
+        moveTo(id, "COMING_SOON");
         return id;
+    }
+
+    /**
+     * A Course moved to On sale straight from a Draft of {@link #fullDocument}, as of the application's clock. Its one
+     * Module, "Fundamentos", holds its Free lesson, "O que é uma API", published with a three-second video.
+     */
+    public long onSale(String slug) {
+        return launch(completeDraft(slug), slug);
+    }
+
+    /** Like {@link #onSale}, from a Course announced first, so it went Coming soon before it went On sale. */
+    public long launchedAfterAnnouncement(String slug) {
+        return launch(announced(slug), slug);
+    }
+
+    /**
+     * Moves a Course of {@link #fullDocument}, Draft or Coming soon, to On sale, as of the application's clock: a new
+     * Module, "Fundamentos", gets its Free lesson, "O que é uma API", published with a three-second video.
+     */
+    public long launch(long courseId, String slug) {
+        long module = addModule(courseId, "Fundamentos");
+        long freeLesson = addPublishedLesson(module, "O que é uma API", "o-que-e-uma-api", "three-seconds.mp4");
+        putDocument(courseId, fullDocument(slug, freeLesson));
+        moveTo(courseId, "ON_SALE");
+        return courseId;
     }
 
     /** The new Module's id. */
@@ -87,6 +112,46 @@ public final class AdminCourses {
         return addLesson(addModule(draft(newSlug()), "Fundamentos"), "O que é uma API", "o-que-e-uma-api");
     }
 
+    /** A new Lesson at the end of the Module, published with a video of the fixture's length. */
+    public long addPublishedLesson(long moduleId, String title, String slug, String fixture) {
+        long lesson = addLesson(moduleId, title, slug);
+        linkVideo(lesson, fixture);
+        publish(lesson);
+        return lesson;
+    }
+
+    /**
+     * Links one of {@link StoredVideos#fixture}'s files the way the Admin does: an upload URL, the upload straight to
+     * the storage, then the link.
+     */
+    public void linkVideo(long lessonId, String fixture) {
+        Objects.requireNonNull(videos, "Linking a video needs the storage");
+        MvcTestResult upload = mvc.post().uri("/v1/admin/lessons/%d/video-uploads".formatted(lessonId))
+                .header(HttpHeaders.AUTHORIZATION, bearer)
+                .exchange();
+        assertThat(upload).hasStatusOk();
+        String objectKey = JsonPath.read(body(upload), "$.objectKey");
+        videos.put(objectKey, StoredVideos.fixture(fixture));
+        put("/v1/admin/lessons/%d/video".formatted(lessonId), "{\"objectKey\": \"%s\"}".formatted(objectKey));
+    }
+
+    public void publish(long lessonId) {
+        put("/v1/admin/lessons/%d/status".formatted(lessonId), "{\"status\": \"PUBLISHED\"}");
+    }
+
+    public void putDocument(long courseId, String document) {
+        put("/v1/admin/courses/" + courseId, document);
+    }
+
+    /** Puts the outline, {@code [{ moduleId, lessonIds }, …]}, in the order given. */
+    public void putOutline(long courseId, String outline) {
+        put("/v1/admin/courses/%d/outline".formatted(courseId), outline);
+    }
+
+    public void moveTo(long courseId, String status) {
+        put("/v1/admin/courses/%d/status".formatted(courseId), "{\"status\": \"%s\"}".formatted(status));
+    }
+
     public void delete(long courseId) {
         assertThat(mvc.delete().uri("/v1/admin/courses/" + courseId).header(HttpHeaders.AUTHORIZATION, bearer))
                 .hasStatus(HttpStatus.NO_CONTENT);
@@ -111,6 +176,19 @@ public final class AdminCourses {
                   "pixDiscountPercent": 10,
                   "maxInstallments": 10
                 }""".formatted(slug);
+    }
+
+    /** {@link #fullDocument} with the Free lesson set, ready to go On sale too. */
+    public static String fullDocument(String slug, long freeLessonId) {
+        return JsonPath.parse(fullDocument(slug)).put("$", "freeLessonId", freeLessonId).jsonString();
+    }
+
+    private void put(String path, String body) {
+        assertThat(mvc.put().uri(path)
+                .header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+                .hasStatusOk();
     }
 
     private static long idOf(MvcTestResult created) {

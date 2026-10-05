@@ -17,14 +17,13 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 import com.devlabs.aulaflix.AdminApi;
 import com.devlabs.aulaflix.AdminCourses;
 import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.IntegrationTest;
-import com.devlabs.aulaflix.StoredCourses;
+import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.service.AccountService;
 import com.jayway.jsonpath.JsonPath;
 
@@ -40,7 +39,7 @@ class CourseControllerTest extends IntegrationTest {
     private AccountService accounts;
 
     @Autowired
-    private JdbcTemplate jdbc;
+    private StoredVideos storedVideos;
 
     private BffApi bff;
 
@@ -50,7 +49,7 @@ class CourseControllerTest extends IntegrationTest {
     void signInAnAdmin() {
         String email = "admin-" + UUID.randomUUID() + "@aulaflix.com.br";
         accounts.createAdmin(email, "Ana", PASSWORD);
-        courses = new AdminCourses(mvc, new AdminApi(mvc).sessionToken(email, PASSWORD));
+        courses = new AdminCourses(mvc, new AdminApi(mvc).sessionToken(email, PASSWORD), storedVideos);
         bff = new BffApi(mvc);
     }
 
@@ -86,11 +85,15 @@ class CourseControllerTest extends IntegrationTest {
 
     @Test
     void listsOnSaleCoursesFirstNewestLaunchFirstThenComingSoonOnes() {
-        StoredCourses stored = new StoredCourses(jdbc);
-        long launchedStraightFromDraft = stored.insertOnSale(newSlug(), Instant.parse("2026-09-10T12:00:00Z"));
-        long launchedAfterAnnouncement = stored.insertOnSale(newSlug(), Instant.parse("2026-08-01T12:00:00Z"),
-                Instant.parse("2026-09-20T12:00:00Z"));
-        long launchedFirst = stored.insertOnSale(newSlug(), Instant.parse("2026-09-01T12:00:00Z"));
+        clock.set(Instant.parse("2026-08-01T12:00:00Z"));
+        String slug = newSlug();
+        long launchedAfterAnnouncement = courses.announced(slug);
+        clock.set(Instant.parse("2026-09-01T12:00:00Z"));
+        long launchedFirst = courses.onSale(newSlug());
+        clock.set(Instant.parse("2026-09-10T12:00:00Z"));
+        long launchedStraightFromDraft = courses.onSale(newSlug());
+        clock.set(Instant.parse("2026-09-20T12:00:00Z"));
+        courses.launch(launchedAfterAnnouncement, slug);
         clock.set(Instant.parse("2026-10-04T12:00:00Z"));
         long comingSoon = courses.announced(newSlug());
 
@@ -101,6 +104,56 @@ class CourseControllerTest extends IntegrationTest {
                 .containsExactly(launchedAfterAnnouncement, launchedStraightFromDraft, launchedFirst, comingSoon);
         assertThat(listedItem(list, launchedAfterAnnouncement)).containsEntry("status", "ON_SALE")
                 .doesNotContainKey("plannedTopicCount");
+    }
+
+    @Test
+    void listsAnOnSaleCourseWithItsPricingAndEveryLessonCountedEmBreveOnesIncluded() {
+        String slug = newSlug();
+        long id = courses.onSale(slug);
+        courses.addModule(id, "Módulo vazio");
+        courses.addLesson(courses.addModule(id, "Rotas e respostas"), "Rotas no Express", "rotas-no-express");
+
+        MvcTestResult list = bff.get("/v1/courses").exchange();
+
+        assertThat(listedItem(list, id)).isEqualTo(JsonPath.parse("""
+                {
+                  "id": %d,
+                  "slug": "%s",
+                  "title": "Backend com Node.js",
+                  "summary": "Construa APIs REST com Node.js e TypeScript.",
+                  "area": "BACKEND",
+                  "icon": "SERVER",
+                  "tone": "CORAL",
+                  "status": "ON_SALE",
+                  "pricing": {
+                    "priceCents": 49700,
+                    "pixDiscountPercent": 10,
+                    "pixPriceCents": 44730,
+                    "maxInstallments": 10,
+                    "installmentCents": 4970
+                  },
+                  "lessonCount": 2
+                }""".formatted(id, slug)).json());
+    }
+
+    @Test
+    void pricesACourseWithoutAPixDiscountAtTheFullPriceOnPix() {
+        String slug = newSlug();
+        long id = courses.onSale(slug);
+        long freeLesson = ((Number) JsonPath.read(body(bff.get("/v1/courses/" + slug).exchange()), "$.freeLessonId"))
+                .longValue();
+        courses.putDocument(id, JsonPath.parse(AdminCourses.fullDocument(slug, freeLesson))
+                .delete("$.pixDiscountPercent")
+                .set("$.priceCents", 39990)
+                .set("$.maxInstallments", 3)
+                .jsonString());
+
+        assertThat(bff.get("/v1/courses/" + slug)).bodyJson().extractingPath("$.pricing").isEqualTo(Map.of(
+                "priceCents", 39990, "pixDiscountPercent", 0, "pixPriceCents", 39990, "maxInstallments", 3,
+                "installmentCents", 13330));
+        assertThat(listedItem(bff.get("/v1/courses").exchange(), id)).extractingByKey("pricing")
+                .isEqualTo(Map.of("priceCents", 39990, "pixDiscountPercent", 0, "pixPriceCents", 39990,
+                        "maxInstallments", 3, "installmentCents", 13330));
     }
 
     @ParameterizedTest
@@ -122,10 +175,12 @@ class CourseControllerTest extends IntegrationTest {
     }
 
     @Test
-    void showsAComingSoonCourseWithItsPlannedTopicsAndNoneOfItsModules() {
+    void showsAComingSoonCourseWithItsPlannedTopicsAndNoneOfItsModulesNorItsFreeLesson() {
         String slug = newSlug();
         long id = courses.announced(slug);
-        courses.addModule(id, "Fundamentos");
+        long lesson = courses.addPublishedLesson(courses.addModule(id, "Fundamentos"), "O que é uma API",
+                "o-que-e-uma-api", "three-seconds.mp4");
+        courses.putDocument(id, AdminCourses.fullDocument(slug, lesson));
 
         MvcTestResult detail = bff.get("/v1/courses/" + slug).exchange();
 
@@ -133,6 +188,7 @@ class CourseControllerTest extends IntegrationTest {
                 .hasContentType(MediaType.APPLICATION_JSON)
                 .bodyJson()
                 .doesNotHavePath("$.pricing")
+                .doesNotHavePath("$.lessonCount")
                 .doesNotHavePath("$.modules")
                 .doesNotHavePath("$.freeLessonId")
                 .isStrictlyEqualTo("""
@@ -158,17 +214,127 @@ class CourseControllerTest extends IntegrationTest {
     }
 
     @Test
-    void showsAnOnSaleCourseWithoutThePlannedTopicsItHadWhileComingSoon() {
+    void showsAnOnSaleCourseWithItsFreeLessonAndSyllabusInsteadOfThePlannedTopicsItHadWhileComingSoon() {
         String slug = newSlug();
-        long id = new StoredCourses(jdbc).insertOnSale(slug, Instant.parse("2026-08-01T12:00:00Z"),
-                Instant.parse("2026-09-20T12:00:00Z"));
+        long id = courses.announced(slug);
+        Syllabus syllabus = syllabusOf(id);
+        courses.putDocument(id, AdminCourses.fullDocument(slug, syllabus.rotasNoExpress()));
+        courses.moveTo(id, "ON_SALE");
 
-        assertThat(bff.get("/v1/courses/" + slug)).hasStatusOk().bodyJson()
-                .doesNotHavePath("$.plannedTopics")
-                .doesNotHavePath("$.plannedTopicCount")
-                .isLenientlyEqualTo("""
-                        {"id": %d, "slug": "%s", "status": "ON_SALE", "about": ["Por que testar."], "faq": []}"""
-                        .formatted(id, slug));
+        MvcTestResult detail = bff.get("/v1/courses/" + slug).exchange();
+
+        assertThat(detail).hasStatusOk()
+                .hasContentType(MediaType.APPLICATION_JSON)
+                .bodyJson().isStrictlyEqualTo("""
+                        {
+                          "id": %d,
+                          "slug": "%s",
+                          "title": "Backend com Node.js",
+                          "summary": "Construa APIs REST com Node.js e TypeScript.",
+                          "area": "BACKEND",
+                          "icon": "SERVER",
+                          "tone": "CORAL",
+                          "status": "ON_SALE",
+                          "pricing": {
+                            "priceCents": 49700,
+                            "pixDiscountPercent": 10,
+                            "pixPriceCents": 44730,
+                            "maxInstallments": 10,
+                            "installmentCents": 4970
+                          },
+                          "lessonCount": 3,
+                          "about": [
+                            "Quase todo produto depende de um backend.",
+                            "Este curso constrói uma API do zero."
+                          ],
+                          "learn": ["Projetar rotas e respostas."],
+                          "audience": ["Para devs frontend."],
+                          "faq": [{"question": "Preciso saber JavaScript?", "answer": "Sim, o básico."}],
+                          "freeLessonId": %d,
+                          "modules": [
+                            {
+                              "number": 1,
+                              "title": "Fundamentos",
+                              "lessons": [
+                                {
+                                  "id": %d,
+                                  "number": 1,
+                                  "title": "O que é uma API",
+                                  "published": true,
+                                  "slug": "o-que-e-uma-api",
+                                  "durationSeconds": 3
+                                },
+                                {"id": %d, "number": 2, "title": "HTTP na prática", "published": false}
+                              ]
+                            },
+                            {
+                              "number": 2,
+                              "title": "Rotas e respostas",
+                              "lessons": [
+                                {
+                                  "id": %d,
+                                  "number": 3,
+                                  "title": "Rotas no Express",
+                                  "published": true,
+                                  "slug": "rotas-no-express",
+                                  "durationSeconds": 5
+                                }
+                              ]
+                            }
+                          ]
+                        }""".formatted(id, slug, syllabus.rotasNoExpress(), syllabus.oQueEUmaApi(),
+                        syllabus.httpNaPratica(), syllabus.rotasNoExpress()));
+    }
+
+    @Test
+    void renumbersTheSyllabusOnceTheOutlineIsReordered() {
+        String slug = newSlug();
+        long id = courses.completeDraft(slug);
+        Syllabus syllabus = syllabusOf(id);
+        courses.putDocument(id, AdminCourses.fullDocument(slug, syllabus.oQueEUmaApi()));
+        courses.moveTo(id, "ON_SALE");
+
+        courses.putOutline(id, """
+                [
+                  {"moduleId": %d, "lessonIds": []},
+                  {"moduleId": %d, "lessonIds": [%d, %d]},
+                  {"moduleId": %d, "lessonIds": [%d]}
+                ]""".formatted(syllabus.fundamentos(), syllabus.rotas(), syllabus.rotasNoExpress(),
+                syllabus.oQueEUmaApi(), syllabus.vazio(), syllabus.httpNaPratica()));
+
+        MvcTestResult detail = bff.get("/v1/courses/" + slug).exchange();
+        assertThat(detail).bodyJson().extractingPath("$.modules").isEqualTo(JsonPath.parse("""
+                [
+                  {
+                    "number": 1,
+                    "title": "Rotas e respostas",
+                    "lessons": [
+                      {
+                        "id": %d,
+                        "number": 1,
+                        "title": "Rotas no Express",
+                        "published": true,
+                        "slug": "rotas-no-express",
+                        "durationSeconds": 5
+                      },
+                      {
+                        "id": %d,
+                        "number": 2,
+                        "title": "O que é uma API",
+                        "published": true,
+                        "slug": "o-que-e-uma-api",
+                        "durationSeconds": 3
+                      }
+                    ]
+                  },
+                  {
+                    "number": 2,
+                    "title": "Módulo vazio",
+                    "lessons": [{"id": %d, "number": 3, "title": "HTTP na prática", "published": false}]
+                  }
+                ]""".formatted(syllabus.rotasNoExpress(), syllabus.oQueEUmaApi(), syllabus.httpNaPratica()))
+                .json());
+        assertThat(listedItem(bff.get("/v1/courses").exchange(), id)).containsEntry("lessonCount", 3);
     }
 
     @Test
@@ -190,6 +356,28 @@ class CourseControllerTest extends IntegrationTest {
     @ValueSource(strings = {"Backend-Com-Node", "curso_com_sublinhado", "123", "backend--node"})
     void answersASlugOfAnyShapeLikeOneNoCourseHas(String slug) {
         assertCourseNotFound(bff.get("/v1/courses/" + slug).exchange(), "/v1/courses/" + slug);
+    }
+
+    /**
+     * The outline of a Syllabus: "Fundamentos" with "O que é uma API", published with a three-second video, then "HTTP
+     * na prática", "Em breve" though its video is linked; an empty Module; and "Rotas e respostas" with "Rotas no
+     * Express", published with a five-second video.
+     */
+    private Syllabus syllabusOf(long courseId) {
+        long fundamentos = courses.addModule(courseId, "Fundamentos");
+        long oQueEUmaApi = courses.addPublishedLesson(fundamentos, "O que é uma API", "o-que-e-uma-api",
+                "three-seconds.mp4");
+        long httpNaPratica = courses.addLesson(fundamentos, "HTTP na prática", "http-na-pratica");
+        courses.linkVideo(httpNaPratica, "three-seconds.mp4");
+        long vazio = courses.addModule(courseId, "Módulo vazio");
+        long rotas = courses.addModule(courseId, "Rotas e respostas");
+        long rotasNoExpress = courses.addPublishedLesson(rotas, "Rotas no Express", "rotas-no-express",
+                "five-seconds.mp4");
+        return new Syllabus(fundamentos, oQueEUmaApi, httpNaPratica, vazio, rotas, rotasNoExpress);
+    }
+
+    private record Syllabus(long fundamentos, long oQueEUmaApi, long httpNaPratica, long vazio, long rotas,
+                            long rotasNoExpress) {
     }
 
     private void assertCourseNotFound(MvcTestResult result, String path) {

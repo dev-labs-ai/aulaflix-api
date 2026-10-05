@@ -25,6 +25,7 @@ import com.devlabs.aulaflix.exception.CourseCannotMoveBackException;
 import com.devlabs.aulaflix.exception.CourseNotDraftException;
 import com.devlabs.aulaflix.exception.CourseNotFoundException;
 import com.devlabs.aulaflix.exception.CourseRequirementsUnmetException;
+import com.devlabs.aulaflix.exception.FreeLessonIneligibleException;
 import com.devlabs.aulaflix.exception.PriceNotDivisibleByInstallmentsException;
 import com.devlabs.aulaflix.exception.SlugFrozenException;
 import com.devlabs.aulaflix.exception.SlugTakenException;
@@ -81,13 +82,15 @@ public class CourseService {
     /**
      * Replaces the whole editable document: a field left out is cleared. A Course that is no longer a Draft keeps its
      * slug, and every field its state needs. Those are checked on the Course as the document leaves it, and refusing
-     * rolls the document back.
+     * rolls the document back. The Free lesson is a published Lesson of the Course in every state, so that it already
+     * is one when the Course goes On sale.
      */
     @Transactional
     public AdminCourse update(long adminId, String courseId, CourseDocument document) {
         CourseEntity course = locks.course(courseId);
         requireSlugChangeAllowed(course, document.slug());
         requireExactInstallments(document);
+        requirePublishedLessonOf(course, document.freeLessonId());
         apply(document, course);
         requireFitFor(course.getStatus(), course);
         log.info("Admin {} updated Course {}", adminId, course.getId());
@@ -159,6 +162,13 @@ public class CourseService {
         }
     }
 
+    /** Under the Course's lock, so no Lesson can move in or out of it meanwhile; a published Lesson stays so. */
+    private void requirePublishedLessonOf(CourseEntity course, Long freeLessonId) {
+        if (freeLessonId != null && !lessons.isPublishedLessonOf(freeLessonId, course.getId())) {
+            throw new FreeLessonIneligibleException();
+        }
+    }
+
     private static void apply(CourseDocument document, CourseEntity course) {
         course.setSlug(document.slug());
         course.setTitle(document.title());
@@ -176,6 +186,7 @@ public class CourseService {
         course.setPriceCents(document.priceCents());
         course.setPixDiscountPercent(document.pixDiscountPercent());
         course.setMaxInstallments(document.maxInstallments());
+        course.setFreeLessonId(document.freeLessonId());
     }
 
     private static <T> List<T> orEmpty(List<T> list) {
@@ -199,6 +210,7 @@ public class CourseService {
                 course.getPriceCents(),
                 course.getPixDiscountPercent(),
                 course.getMaxInstallments(),
+                course.getFreeLessonId(),
                 course.getStatus(),
                 readinessOf(course),
                 course.getComingSoonAt(),
