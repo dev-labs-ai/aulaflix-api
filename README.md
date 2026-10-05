@@ -20,13 +20,14 @@ for key in read-only read-write; do
     openssl rand -hex 20 > secrets/aulaflix.storage.$key.secret-access-key
 done
 # …and AIStor Free's license, downloaded from your MinIO account, as secrets/minio.license
+# …and an API key of your Asaas sandbox account (Integrações > Chaves de API), as secrets/aulaflix.asaas.api-key
 
 docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
 The API applies its Flyway migrations when it starts. It refuses to start without a BFF key of at least 32
-characters, or without the storage's two keys.
+characters, without the storage's two keys, or without the Asaas key.
 
 AIStor Free answers every S3 request with a denial until it has its license, which the same file serves locally, in
 the tests and in production. On every `up`, `storage-init` creates the private `videos` bucket and the API's two
@@ -44,6 +45,7 @@ The secret files, and the services that mount them:
 | `aulaflix.storage.read-write.access-key-id`, `aulaflix.storage.read-write.secret-access-key` | storage-init, api |
 | `storage.root-user`, `storage.root-password` | storage, storage-init |
 | `minio.license` | storage |
+| `aulaflix.asaas.api-key` | api |
 
 Compose mounts each file as it is on the host, with its owner and mode, and the API's image runs as the unprivileged
 user 10001, so a file the `api` service mounts must be readable by that user: `chmod 644 secrets/*` locally, which is
@@ -198,6 +200,32 @@ an email within 15 minutes block it for 15 minutes, with a counter apart from th
 and sign-in together get 60 requests an hour, and sign-up 10 a day, whatever they answer
 (`aulaflix.rate-limits.look-ups-and-sign-ins.*`, `aulaflix.rate-limits.sign-ups.*`).
 
+## Orders
+
+A Student buys an On sale Course by Pix on AulaFlix's page ([ADR 0006](docs/adr/0006-card-payments-on-asaas-pix-on-our-page.md)):
+`POST /v1/account/orders` `{ courseId, method: "PIX", cpf? }` writes the Order, awaiting payment, at the Course's
+current Pix price, then asks Asaas for a Pix charge under the Order's code, its `externalReference`, and answers 201
+with the Order and its `pix` `{ qrCodePng, copyPasteCode, expiresAt }`, 30 minutes out. Asking again while that Order
+awaits payment answers it with 200, and makes no new charge. The Student's first Pix needs their CPF, punctuation
+allowed, whose check digits the API checks: it makes the Student's one Asaas customer, with Asaas's notifications off,
+and is never stored nor logged; the Account keeps only the customer's id. An Admin gets 403; a Course that is not On
+sale, `course-not-for-sale`; a Student already enrolled, `already-enrolled`.
+
+When Asaas is down, slower than `aulaflix.asaas.timeout`, or answers 5xx or 429, the answer is 503
+`payment-unavailable` with `Retry-After` (`aulaflix.asaas.retry-after`); any other 4xx is 502
+`payment-provider-error`, logged at ERROR. Either way the Order is cancelled, and the charge made for it is deleted at
+once: by its id, or, when Asaas never gave one, by searching its code. A charge that search misses is left to
+reconciliation.
+
+`GET /v1/account/orders` lists the Student's Orders, newest first, without the ones never paid (expired, cancelled or
+declined) and without the QR code; `GET /v1/account/orders/{code}` reads one in any state, with the QR code while it
+awaits payment, and answers another Student's code with 404 `order-not-found`. Placing Orders gets 10 an hour per
+Student, 30 per IP and 500 for everyone, whatever they answer (`aulaflix.rate-limits.checkouts-per-student.*`,
+`.checkouts-per-ip.*`, `.checkouts.*`).
+
+The API calls `aulaflix.asaas.base-url`, Asaas's sandbox locally and its production API in the `production` profile,
+with the key in Asaas's `access_token` header. In the tests WireMock plays Asaas.
+
 ## The API's image and the `full` profile
 
 The `Dockerfile` builds the API's image: the jar on a JRE, run as the unprivileged user 10001, with the heap at 75% of
@@ -282,7 +310,7 @@ file and `PUT` it again. `docker compose --profile full down -v` throws the rehe
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from
-`secrets/minio.license`, which CI writes there from a secret. HIBP is played by WireMock, in the tests' JVM. `./mvnw verify` also runs the `*IT` tests, which make the
+`secrets/minio.license`, which CI writes there from a secret. HIBP and Asaas are played by WireMock, in the tests' JVM. `./mvnw verify` also runs the `*IT` tests, which make the
 signed uploads and playback requests over real HTTP. Mutation testing runs with
 `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`, and its report lands in `target/pit-reports/`. It
 mutates the `command`, `config`, `exception` and `service` packages. To check one slice, name the classes it changed:

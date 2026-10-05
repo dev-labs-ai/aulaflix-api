@@ -80,7 +80,7 @@ public class OpenApiConfiguration {
                 addRefusal(operation, "403", "A session of another role");
             }
             operation.getResponses().forEach((status, response) -> {
-                if (status.startsWith("4") && !isProblem(response)) {
+                if ((status.startsWith("4") || status.startsWith("5")) && !isProblem(response)) {
                     response.content(problemContent());
                 }
             });

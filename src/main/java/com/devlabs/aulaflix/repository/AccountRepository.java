@@ -28,4 +28,8 @@ public interface AccountRepository extends JpaRepository<AccountEntity, Long> {
      */
     @Query(value = "select true from pg_advisory_xact_lock(hashtextextended(:email, 0))", nativeQuery = true)
     boolean lockEmail(@Param("email") String email);
+
+    /** Holds the Account's row lock until the transaction ends. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<AccountEntity> findLockedById(long id);
 }

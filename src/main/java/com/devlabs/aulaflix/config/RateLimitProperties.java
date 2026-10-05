@@ -30,7 +30,16 @@ public record RateLimitProperties(
         Limit lookUpsAndSignIns,
         @NotNull
         @Valid
-        Limit signUps) {
+        Limit signUps,
+        @NotNull
+        @Valid
+        Limit checkoutsPerStudent,
+        @NotNull
+        @Valid
+        Limit checkoutsPerIp,
+        @NotNull
+        @Valid
+        Limit checkouts) {
 
     /** Every BFF request, whatever it asks for, per client IP. */
     RateLimit bffRequestLimit() {
@@ -50,6 +59,21 @@ public record RateLimitProperties(
     /** Every sign-up, whatever it answers, per client IP. */
     RateLimit signUpLimit() {
         return signUps.named("sign-ups");
+    }
+
+    /** Every Order placement, whatever it answers, per Student. */
+    RateLimit checkoutPerStudentLimit() {
+        return checkoutsPerStudent.named("checkouts-per-student");
+    }
+
+    /** Every Order placement, whatever it answers, per client IP. */
+    RateLimit checkoutPerIpLimit() {
+        return checkoutsPerIp.named("checkouts-per-ip");
+    }
+
+    /** Every Order placement, whatever it answers, of everyone at once. */
+    RateLimit checkoutLimit() {
+        return checkouts.named("checkouts");
     }
 
     /** At most {@code requests} per {@code window}, a window being at least a second. */

@@ -40,6 +40,10 @@ public class AccountEntity {
     @Column(name = "email_confirmed_at")
     private Instant emailConfirmedAt;
 
+    /** The Student's one Asaas customer, made with the CPF of their first Pix; the CPF itself is never stored. */
+    @Column(name = "asaas_customer_id", length = 64)
+    private String asaasCustomerId;
+
     protected AccountEntity() {
     }
 
@@ -85,5 +89,13 @@ public class AccountEntity {
 
     public Instant getEmailConfirmedAt() {
         return emailConfirmedAt;
+    }
+
+    public String getAsaasCustomerId() {
+        return asaasCustomerId;
+    }
+
+    public void setAsaasCustomerId(String asaasCustomerId) {
+        this.asaasCustomerId = asaasCustomerId;
     }
 }
