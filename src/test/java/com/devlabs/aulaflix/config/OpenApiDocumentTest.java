@@ -514,6 +514,53 @@ class OpenApiDocumentTest extends IntegrationTest {
     }
 
     @Test
+    void documentsEveryStatusEachAdminOrderEndpointCanAnswer() {
+        assertResponses("/v1/admin/orders", "get", "200", "400", "401", "403", "500");
+        assertResponses("/v1/admin/orders/{code}", "get", "200", "401", "403", "404", "500");
+        assertResponses("/v1/admin/orders/{code}/refund", "post", "200", "401", "403", "404", "409", "500", "503");
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths['/v1/admin/orders/{code}/refund'].post.responses['409'].description")
+                .asString().contains("`order-not-paid`", "`refund-refused`", "`reasons`");
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths['/v1/admin/orders/{code}/refund'].post.responses['503']").isEqualTo(Map.of(
+                        "description", "`payment-unavailable`: Asaas is down, too slow, or busy; nothing changed: "
+                                + "try again after Retry-After seconds",
+                        "headers", Map.of("Retry-After", Map.of(
+                                "description", "Seconds to wait before trying again",
+                                "style", "simple",
+                                "schema", Map.of("type", "integer"))),
+                        "content", Map.of("application/problem+json",
+                                Map.of("schema", Map.of("$ref", "#/components/schemas/ProblemDetail")))));
+    }
+
+    @Test
+    void documentsTheOrderListsQueryParameters() {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths['/v1/admin/orders'].get.parameters[*].name").asArray()
+                .containsExactlyInAnyOrder("status", "courseId", "email", "duplicatePayment", "page", "size");
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/admin/orders": {
+                      "get": {
+                        "tags": ["Admin orders"],
+                        "security": [{"bearer": []}],
+                        "responses": {
+                          "200": {
+                            "content": {
+                              "application/json": {
+                                "schema": {"$ref": "#/components/schemas/PageResponseAdminOrder"}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""");
+    }
+
+    @Test
     void documentsTheEnrollmentListsQueryParameters() {
         assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
                 .extractingPath("$.paths['/v1/admin/enrollments'].get.parameters[*].name").asArray()

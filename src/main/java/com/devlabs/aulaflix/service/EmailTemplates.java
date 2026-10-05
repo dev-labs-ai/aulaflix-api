@@ -92,6 +92,27 @@ public class EmailTemplates {
     }
 
     /**
+     * The Student's notice that the Order is being refunded in full. A refund ends the access the Order opened; a
+     * Duplicate payment opened none, so the Student keeps the access they already had.
+     */
+    public OutboundEmail refundNotice(String recipient, String name, String orderCode, int amountCents,
+                                      String courseTitle, boolean duplicatePayment) {
+        String access = duplicatePayment
+                ? "Esse pagamento foi em duplicidade: seu acesso ao curso continua liberado."
+                : "Com o reembolso, o acesso ao curso foi encerrado.";
+        return new OutboundEmail(EmailTemplate.REFUND_NOTICE, recipient, "Reembolso do pedido " + orderCode, """
+                Olá, %s!
+
+                Estamos reembolsando o pedido %s, de %s, do curso %s. O valor volta para você pelo mesmo meio de \
+                pagamento.
+
+                %s
+
+                Equipe AulaFlix
+                """.formatted(name, orderCode, reais(amountCents), courseTitle, access), Map.of());
+    }
+
+    /**
      * An Admin's alert that the Order was a Duplicate payment: paid while its Student already had the Course, so it
      * opened nothing, and an Admin refunds it by hand. It names the Order, never the Student, whom the Order's read
      * shows.

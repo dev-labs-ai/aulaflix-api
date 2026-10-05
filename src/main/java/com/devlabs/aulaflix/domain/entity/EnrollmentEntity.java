@@ -105,6 +105,18 @@ public class EnrollmentEntity {
         this.endNote = note;
     }
 
+    /**
+     * Ended with its Order, which money leaving undid: a Refund, a chargeback, or an upheld Pix cautionary block. Only
+     * an Enrollment an Order granted ends this way, and never for {@code MANUAL}, which needs an Admin and a note.
+     */
+    public void endWithItsOrder(Instant at, EnrollmentEndReason reason) {
+        if (origin != EnrollmentOrigin.ORDER || reason == EnrollmentEndReason.MANUAL) {
+            throw new IllegalArgumentException("Enrollment %d does not end with its Order for %s"
+                    .formatted(id, reason));
+        }
+        end(at, reason);
+    }
+
     private void end(Instant at, EnrollmentEndReason reason) {
         if (!isActive()) {
             throw new IllegalStateException("Enrollment %d has already ended".formatted(id));

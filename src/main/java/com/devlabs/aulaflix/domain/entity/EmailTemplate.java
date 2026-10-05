@@ -10,6 +10,8 @@ public enum EmailTemplate {
     PASSWORD_CHANGED,
     /** The Student's record that an Order was paid and its Course opened. */
     PURCHASE_CONFIRMATION,
+    /** The Student's notice that an Order was refunded, and whether its Course closed with it. */
+    REFUND_NOTICE,
     /** Every Admin's alert that an Order was a Duplicate payment, to refund by hand. */
     DUPLICATE_PAYMENT_ALERT
 }

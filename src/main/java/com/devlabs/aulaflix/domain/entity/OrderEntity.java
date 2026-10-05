@@ -98,6 +98,16 @@ public class OrderEntity {
     @Column(name = "installments")
     private Integer installments;
 
+    @Column(name = "refund_requested_at")
+    private Instant refundRequestedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "refund_requested_by")
+    private AccountEntity refundRequestedBy;
+
+    @Column(name = "refunded_at")
+    private Instant refundedAt;
+
     protected OrderEntity() {
     }
 
@@ -216,6 +226,30 @@ public class OrderEntity {
         duplicatePayment = true;
     }
 
+    /**
+     * Refunding from the moment given, if it was paid, at the Admin's request, or at nobody's when the refund was made
+     * in the Asaas UI, and answers whether it was; any other state stays, since only money taken is refunded.
+     */
+    public boolean refunding(Instant at, AccountEntity admin) {
+        if (status != OrderStatus.PAID) {
+            return false;
+        }
+        status = OrderStatus.REFUNDING;
+        refundRequestedAt = at;
+        refundRequestedBy = admin;
+        return true;
+    }
+
+    /** Refunded at the moment given, once Asaas reports its refund done, and answers whether it was refunding. */
+    public boolean refunded(Instant at) {
+        if (status != OrderStatus.REFUNDING) {
+            return false;
+        }
+        status = OrderStatus.REFUNDED;
+        refundedAt = at;
+        return true;
+    }
+
     public Long getId() {
         return id;
     }
@@ -290,5 +324,17 @@ public class OrderEntity {
 
     public Integer getInstallments() {
         return installments;
+    }
+
+    public Instant getRefundRequestedAt() {
+        return refundRequestedAt;
+    }
+
+    public AccountEntity getRefundRequestedBy() {
+        return refundRequestedBy;
+    }
+
+    public Instant getRefundedAt() {
+        return refundedAt;
     }
 }
