@@ -198,6 +198,23 @@ an email within 15 minutes block it for 15 minutes, with a counter apart from th
 and sign-in together get 60 requests an hour, and sign-up 10 a day, whatever they answer
 (`aulaflix.rate-limits.look-ups-and-sign-ins.*`, `aulaflix.rate-limits.sign-ups.*`).
 
+## Meus cursos and Progress
+
+With the Student's token, `GET /v1/account/enrollments` answers "Meus cursos": `{ items }`, every active Enrollment,
+oldest first, each with its `course` `{ id, slug, title, area, icon, tone, status }` and `progress`
+`{ completed, published, total, percent, standing }`. `total` counts every Lesson, "Em breve" ones included, and
+`percent` is `completed ÷ total` rounded down, so it reaches 100 only once the Course is `FINISHED`. The `standing` is
+`NOT_STARTED`, `IN_PROGRESS`, `CAUGHT_UP` (every published Lesson done, some still "Em breve") or `FINISHED`.
+`GET /v1/account/enrollments/{courseId}` answers one of them with its `completedLessonIds`, or 404
+`enrollment-not-found` when the Student has no active Enrollment in the Course. An Enrollment in a Coming soon Course
+comes without `progress` (or `completedLessonIds`) until the launch.
+
+`PUT` and `DELETE /v1/account/completed-lessons/{lessonId}` mark a Lesson as completed and take the mark back; both
+answer 204 and are idempotent. Only a published Lesson of an On sale Course takes a mark (any other, an id of any shape
+included, answers 404 `lesson-not-found`), and only with an active Enrollment in its Course (409
+`enrollment-required`). The marks belong to the Student, not to the Enrollment: once it ends they are out of reach,
+and a new Enrollment in the Course brings them back as they were.
+
 ## The API's image and the `full` profile
 
 The `Dockerfile` builds the API's image: the jar on a JRE, run as the unprivileged user 10001, with the heap at 75% of

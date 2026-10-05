@@ -67,6 +67,18 @@ public class EnrollmentService {
         return repository.existsByStudentIdAndCourseIdAndEndedAtIsNull(studentId, courseId);
     }
 
+    /** The Student's active Enrollments, each with its Course, oldest first: what "Meus cursos" starts from. */
+    @Transactional(readOnly = true)
+    public List<EnrollmentEntity> activeEnrollmentsOf(long studentId) {
+        return repository.findActiveWithCourseByStudentId(studentId);
+    }
+
+    /** The Student's active Enrollment in the Course, with the Course, if there is one. */
+    @Transactional(readOnly = true)
+    public Optional<EnrollmentEntity> activeEnrollment(long studentId, long courseId) {
+        return repository.findActiveWithCourse(studentId, courseId);
+    }
+
     /**
      * Grants an Enrollment by hand to the Student with the email, in a Coming soon or On sale Course, with the note that
      * is the only record of why. It sends no email: the Admin tells the Student.

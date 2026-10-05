@@ -90,7 +90,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS).permitAll()
-                        .requestMatchers("/v1/account", "/v1/sessions/current").hasRole("STUDENT")
+                        .requestMatchers("/v1/account", "/v1/account/**", "/v1/sessions/current").hasRole("STUDENT")
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
                         .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")
                         .requestMatchers(DOCUMENTATION).permitAll()

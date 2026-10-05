@@ -330,7 +330,8 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .extractingPath("$.paths").asMap()
                 .containsOnlyKeys("/v1/courses", "/v1/courses/{slug}", "/v1/lessons/{lessonId}/playback",
                         "/v1/account-lookups", "/v1/accounts", "/v1/account", "/v1/sessions",
-                        "/v1/sessions/current");
+                        "/v1/sessions/current", "/v1/account/enrollments", "/v1/account/enrollments/{courseId}",
+                        "/v1/account/completed-lessons/{lessonId}");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -628,6 +629,76 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/accounts'].post.responses['409'].description").asString()
                 .contains("`email-taken`");
+    }
+
+    @Test
+    void documentsTheLearningEndpointsWithASession() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/account/enrollments": {
+                      "get": {
+                        "tags": ["Learning"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "responses": {
+                          "200": {
+                            "content": {
+                              "application/json": {"schema": {"$ref": "#/components/schemas/StudentEnrollmentList"}}
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "/v1/account/enrollments/{courseId}": {
+                      "get": {
+                        "tags": ["Learning"],
+                        "security": [{"bearer": [], "bffKey": []}],
+                        "responses": {
+                          "200": {
+                            "content": {
+                              "application/json": {"schema": {"$ref": "#/components/schemas/StudentEnrollmentDetail"}}
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "/v1/account/completed-lessons/{lessonId}": {
+                      "put": {"tags": ["Learning"], "security": [{"bearer": [], "bffKey": []}]},
+                      "delete": {"tags": ["Learning"], "security": [{"bearer": [], "bffKey": []}]}
+                    }
+                  }
+                }""");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.Progress.properties").asMap()
+                .containsOnlyKeys("completed", "published", "total", "percent", "standing");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.Progress.properties.standing.enum")
+                .isEqualTo(List.of("NOT_STARTED", "IN_PROGRESS", "CAUGHT_UP", "FINISHED"));
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.EnrolledCourse.properties").asMap()
+                .containsOnlyKeys("id", "slug", "title", "area", "icon", "tone", "status");
+    }
+
+    @Test
+    void documentsEveryStatusEachLearningEndpointCanAnswer() {
+        assertResponsesIn("bff", "/v1/account/enrollments", "get", "200", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/account/enrollments/{courseId}", "get",
+                "200", "400", "401", "403", "404", "429", "500");
+        for (String method : List.of("put", "delete")) {
+            assertResponsesIn("bff", "/v1/account/completed-lessons/{lessonId}", method,
+                    "204", "400", "401", "403", "404", "409", "429", "500");
+            assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                    .extractingPath("$.paths['/v1/account/completed-lessons/{lessonId}'].%s.responses['404'].description"
+                            .formatted(method))
+                    .asString().contains("`lesson-not-found`");
+            assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                    .extractingPath("$.paths['/v1/account/completed-lessons/{lessonId}'].%s.responses['409'].description"
+                            .formatted(method))
+                    .asString().contains("`enrollment-required`");
+        }
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/enrollments/{courseId}'].get.responses['404'].description")
+                .asString().contains("`enrollment-not-found`");
     }
 
     @Test
