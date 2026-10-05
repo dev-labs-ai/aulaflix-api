@@ -376,6 +376,25 @@ unchanged for the next run. A call Asaas refuses is logged at `ERROR`: the expir
 reconciliation reads an awaiting Order again on its next run, until it expires, and gives up on a cancelled Order's
 charges.
 
+### Finding and refunding Orders
+
+`GET /v1/admin/orders` lists every Order, in every state, newest first: 20 to a page by default (`page`, from 0, and
+`size`, at most 100), filtered by any of `status`, `courseId`, `email` and `duplicatePayment=true|false`.
+`GET /v1/admin/orders/{code}` reads one. Both add to the Student's shape the Student, the prices the Order was placed
+at (`listPriceCents`, `pixDiscountPercent`, `amountCents`), `paidAt` and `daysSincePayment` (whole days, by the API's
+clock), the `enrollment` its payment granted, its `asaasChargeId`, and the refund audit: `refundRequestedAt`,
+`refundRequestedBy` and `refundedAt`.
+
+`POST /v1/admin/orders/{code}/refund`, with no body, refunds a paid Order in full through Asaas, with no time limit:
+the Admin decides from `daysSincePayment`. Once Asaas takes it the Order is `REFUNDING`, the Enrollment its payment
+granted ends with `REFUND`, the Student is emailed the refund notice, and the call logs one INFO line with the Admin's
+id; the Student may buy the Course again. A Duplicate payment granted nothing, so the Student keeps the access they
+had. An Order already `REFUNDING` or `REFUNDED` answers 200 as it is, without calling Asaas. Nothing changes when Asaas
+refuses, with 409 `refund-refused` carrying Asaas's `reasons` (`code` and `description`), nor when it cannot be
+reached, with 503 `payment-unavailable`. An Order that was never paid gets 409 `order-not-paid`. Reconciliation
+re-reads every `REFUNDING` Order's charge on each run until Asaas reports its refund `DONE`; the Order then becomes
+`REFUNDED`, with `refundedAt`.
+
 ## The API's image and the `full` profile
 
 The `Dockerfile` builds the API's image: the jar on a JRE, run as the unprivileged user 10001, with the heap at 75% of

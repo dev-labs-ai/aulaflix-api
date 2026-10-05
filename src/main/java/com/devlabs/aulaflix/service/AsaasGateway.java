@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -26,6 +27,7 @@ public class AsaasGateway {
 
     private static final String PIX = "PIX";
     private static final int TOO_MANY_REQUESTS = 429;
+    private static final String DONE = "DONE";
 
     private final RestClient asaas;
     private final Duration retryAfter;
@@ -103,6 +105,17 @@ public class AsaasGateway {
         call("deleting a charge", () -> asaas.delete().uri("/payments/{id}", chargeId).retrieve().toBodilessEntity());
     }
 
+    /**
+     * Refunds the paid charge in full: with no value, Asaas refunds all of it. Asaas taking the call is all it answers;
+     * the refund itself is done once the charge's re-read shows it {@code DONE}.
+     */
+    public void refundCharge(String chargeId) {
+        call("refunding a charge", () -> asaas.post().uri("/payments/{id}/refund", chargeId)
+                .body(Map.of())
+                .retrieve()
+                .toBodilessEntity());
+    }
+
     private String idOf(String operation, Supplier<Created> request) {
         Created created = call(operation, request);
         if (created == null || created.id() == null) {
@@ -118,7 +131,7 @@ public class AsaasGateway {
             if (refusal.getStatusCode().value() == TOO_MANY_REQUESTS) {
                 throw new AsaasUnavailableException(operation, "HTTP " + TOO_MANY_REQUESTS, retryAfter);
             }
-            throw new AsaasRefusedException(operation, refusal.getStatusCode().value(), errorCodesOf(refusal));
+            throw new AsaasRefusedException(operation, refusal.getStatusCode().value(), errorsOf(refusal));
         } catch (HttpServerErrorException failure) {
             throw new AsaasUnavailableException(operation, "HTTP " + failure.getStatusCode().value(), retryAfter);
         } catch (ResourceAccessException failure) {
@@ -128,12 +141,12 @@ public class AsaasGateway {
         }
     }
 
-    /** Asaas words each refusal as {@code {"errors": [{"code", "description"}]}}; the descriptions are not kept. */
-    private static List<String> errorCodesOf(RestClientResponseException refusal) {
+    /** Asaas words each refusal as {@code {"errors": [{"code", "description"}]}}. */
+    private static List<AsaasError> errorsOf(RestClientResponseException refusal) {
         try {
             Errors errors = refusal.getResponseBodyAs(Errors.class);
             return errors == null || errors.errors() == null ? List.of()
-                    : errors.errors().stream().map(Error::code).filter(Objects::nonNull).toList();
+                    : errors.errors().stream().filter(error -> error.code() != null).toList();
         } catch (RestClientException unreadable) {
             return List.of();
         }
@@ -169,14 +182,24 @@ public class AsaasGateway {
      * deleted.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Charge(String id, String status, BigDecimal value, String externalReference, boolean deleted) {
+    public record Charge(String id, String status, BigDecimal value, String externalReference, boolean deleted,
+                         List<Refund> refunds) {
+
+        /** Whether a refund of the charge is done: until then, the money has not left. */
+        public boolean refundDone() {
+            return refunds != null && refunds.stream().anyMatch(refund -> DONE.equals(refund.status()));
+        }
+    }
+
+    /**
+     * One of a charge's refunds, in its own {@code status}: {@code PENDING}, {@code DONE}, {@code CANCELLED}, or
+     * awaiting an authorization.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Refund(String status) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Errors(List<Error> errors) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Error(String code) {
+    private record Errors(List<AsaasError> errors) {
     }
 }

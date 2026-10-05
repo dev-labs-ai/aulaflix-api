@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -65,6 +67,47 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             where o.chargesToDelete = true and o.createdAt <= :before
             order by o.createdAt, o.id""")
     List<OrderEntity> findWithChargesToDeletePlacedBy(@Param("before") Instant before);
+
+    /** The Order with the code, whoever placed it, with everything its Admin view shows. */
+    @Query("""
+            select o from OrderEntity o join fetch o.student join fetch o.course left join fetch o.refundRequestedBy
+            where o.code = :code""")
+    Optional<OrderEntity> findWithPartiesByCode(@Param("code") String code);
+
+    /** The Order with everything its Admin view shows. */
+    @Query("""
+            select o from OrderEntity o join fetch o.student join fetch o.course left join fetch o.refundRequestedBy
+            where o.id = :id""")
+    Optional<OrderEntity> findWithPartiesById(@Param("id") long id);
+
+    /** The Orders being refunded, which reconciliation follows until Asaas reports their refund done. */
+    @Query("""
+            select o from OrderEntity o join fetch o.student
+            where o.status = com.devlabs.aulaflix.domain.OrderStatus.REFUNDING
+            order by o.id""")
+    List<OrderEntity> findRefunding();
+
+    /**
+     * Newest first, each with everything its Admin view shows, in one query for the page and one for the count. A
+     * filter given as null applies no condition.
+     */
+    @Query(value = """
+            select o from OrderEntity o
+            join fetch o.student s join fetch o.course c left join fetch o.refundRequestedBy
+            where (:status is null or o.status = :status)
+              and (:courseId is null or c.id = :courseId)
+              and (:email is null or s.email = :email)
+              and (:duplicatePayment is null or o.duplicatePayment = :duplicatePayment)
+            order by o.createdAt desc, o.id desc""",
+            countQuery = """
+            select count(o) from OrderEntity o join o.student s
+            where (:status is null or o.status = :status)
+              and (:courseId is null or o.course.id = :courseId)
+              and (:email is null or s.email = :email)
+              and (:duplicatePayment is null or o.duplicatePayment = :duplicatePayment)""")
+    Page<OrderEntity> search(@Param("status") OrderStatus status, @Param("courseId") Long courseId,
+                             @Param("email") String email, @Param("duplicatePayment") Boolean duplicatePayment,
+                             Pageable pageable);
 
     /** The Order with its Course. */
     @Query("select o from OrderEntity o join fetch o.course where o.id = :id")

@@ -34,6 +34,30 @@ class EmailTemplatesTest {
     }
 
     @Test
+    void tellsTheStudentTheRefundEndsTheAccessTheOrderOpened() {
+        OutboundEmail email = templates.refundNotice("bia@example.com", "Bia", "K7M2Q9XA", 44730,
+                "Frontend com React", false);
+
+        assertThat(email.template()).isEqualTo(EmailTemplate.REFUND_NOTICE);
+        assertThat(email.recipient()).isEqualTo("bia@example.com");
+        assertThat(email.subject()).isEqualTo("Reembolso do pedido K7M2Q9XA");
+        assertThat(email.body()).startsWith("Olá, Bia!\n").contains(
+                "reembolsando o pedido K7M2Q9XA, de R$ 447,30, do curso Frontend com React",
+                "\nCom o reembolso, o acesso ao curso foi encerrado.\n").doesNotContain("continua");
+        assertThat(email.headers()).isEmpty();
+    }
+
+    @Test
+    void tellsTheStudentARefundedDuplicatePaymentLeavesTheirAccess() {
+        OutboundEmail email = templates.refundNotice("bia@example.com", "Bia", "K7M2Q9XA", 44730,
+                "Frontend com React", true);
+
+        assertThat(email.body())
+                .contains("\nEsse pagamento foi em duplicidade: seu acesso ao curso continua liberado.\n")
+                .doesNotContain("encerrado");
+    }
+
+    @Test
     void namesTheDuplicatePaymentToTheAdminWithTheCallsThatShowAndRefundIt() {
         OutboundEmail email = templates.duplicatePaymentAlert("ana@aulaflix.com.br", "Ana", "K7M2Q9XA", 149700,
                 "Frontend com React");
