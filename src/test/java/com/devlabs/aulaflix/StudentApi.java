@@ -96,6 +96,20 @@ public final class StudentApi {
                 .exchange();
     }
 
+    public MvcTestResult requestResetCode(String email) {
+        return bff.post("/v1/password-reset-codes")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("email", email)))
+                .exchange();
+    }
+
+    public MvcTestResult resetPassword(String email, String code, String newPassword) {
+        return bff.post("/v1/password-resets")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("email", email, "code", code, "newPassword", newPassword)))
+                .exchange();
+    }
+
     private static String json(Map<String, String> fields) {
         return JsonMapper.shared().writeValueAsString(fields);
     }

@@ -90,6 +90,12 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "The link is unknown, expired, or replaced by a newer one: ask for a new one."), request);
     }
 
+    @ExceptionHandler(InvalidCodeException.class)
+    ResponseEntity<Object> invalidCode(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-code", "Invalid code",
+                "The code is wrong or expired: check it, or ask for a new one."), request);
+    }
+
     @ExceptionHandler(EmailAlreadyConfirmedException.class)
     ResponseEntity<Object> emailAlreadyConfirmed(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.CONFLICT, "email-already-confirmed", "Email already confirmed",

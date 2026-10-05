@@ -42,7 +42,13 @@ public record RateLimitProperties(
         Limit checkouts,
         @NotNull
         @Valid
-        Limit emailConfirmations) {
+        Limit emailConfirmations,
+        @NotNull
+        @Valid
+        Limit passwordResetCodes,
+        @NotNull
+        @Valid
+        Limit passwordResets) {
 
     /** Every BFF request, whatever it asks for, per client IP. */
     RateLimit bffRequestLimit() {
@@ -82,6 +88,16 @@ public record RateLimitProperties(
     /** Every post of a confirmation link, whatever it answers, per client IP. */
     RateLimit emailConfirmationLimit() {
         return emailConfirmations.named("email-confirmations");
+    }
+
+    /** Every request for a reset code, whatever it answers, per client IP. */
+    RateLimit passwordResetCodeLimit() {
+        return passwordResetCodes.named("password-reset-codes");
+    }
+
+    /** Every reset with a code, whatever it answers, per client IP. */
+    RateLimit passwordResetLimit() {
+        return passwordResets.named("password-resets");
     }
 
     /** At most {@code requests} per {@code window}, a window being at least a second. */

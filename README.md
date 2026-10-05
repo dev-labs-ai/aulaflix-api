@@ -12,6 +12,7 @@ Secrets are files in `./secrets/` (git-ignored), each named after the property i
 mkdir -p secrets
 openssl rand -base64 24 > secrets/spring.datasource.password
 openssl rand -base64 32 > secrets/aulaflix.bff.key   # the web's server sends the same key
+openssl rand -base64 32 > secrets/aulaflix.codes.hmac-key   # the 6-digit codes are stored as HMACs under it
 # The storage: its root, and the API's two keys, which storage-init creates. Hex, since a key ID goes into URLs.
 openssl rand -hex 10 > secrets/storage.root-user
 openssl rand -hex 24 > secrets/storage.root-password
@@ -28,8 +29,8 @@ docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
-The API applies its Flyway migrations when it starts. It refuses to start without a BFF key of at least 32
-characters, without the storage's two keys, or without the Asaas key and webhook token.
+The API applies its Flyway migrations when it starts. It refuses to start without a BFF key or a codes HMAC key of at
+least 32 characters, without the storage's two keys, or without the Asaas key and webhook token.
 
 AIStor Free answers every S3 request with a denial until it has its license, which the same file serves locally, in
 the tests and in production. On every `up`, `storage-init` creates the private `videos` bucket and the API's two
@@ -46,6 +47,7 @@ The secret files, and the services that mount them:
 |---|---|
 | `spring.datasource.password` | postgres, api |
 | `aulaflix.bff.key` | api, web |
+| `aulaflix.codes.hmac-key` | api |
 | `aulaflix.storage.read-only.access-key-id`, `aulaflix.storage.read-only.secret-access-key` | storage-init, api |
 | `aulaflix.storage.read-write.access-key-id`, `aulaflix.storage.read-write.secret-access-key` | storage-init, api |
 | `storage.root-user`, `storage.root-password` | storage, storage-init |
@@ -213,6 +215,23 @@ posts an hour (`aulaflix.rate-limits.email-confirmations.*`). `POST /v1/account/
 Student's session, sends a new link and voids the earlier ones: 60 seconds after the latest link at the soonest, and at
 most 5 times within 24 hours, past which it answers 429 with `Retry-After`; an email already confirmed gets 409
 `email-already-confirmed`. `GET /v1/account` shows `emailConfirmed`. Nothing is gated on it.
+
+A Student who forgot their password asks for a 6-digit code: `POST /v1/password-reset-codes` `{ email }` always
+answers 204, and takes at least `aulaflix.password-reset.code-request-time` (300 ms) whatever the email, so that neither
+the answer nor its timing tells who has an Account. Only a Student's email gets the code; an unknown or an Admin's email
+gets nothing. A code lives 15 minutes, and a new one voids the earlier one, but not within 60 seconds of it, and not
+past 10 codes per Account within 24 hours: past those, the request still answers 204 and sends nothing. Then
+`POST /v1/password-resets` `{ email, code, newPassword }` sets the new password and answers 200 `{ token, expiresAt }`:
+every earlier session of the Account ends, a squatter's included, a new one opens, the email counts as confirmed, a
+sign-in block on it lifts, and the password-changed email is queued. The new password is checked before the code (its
+format, then HIBP, as `newPassword`), so a refused one never spends a try. A code that is not exactly 6 digits is
+`invalid-format`; a wrong, expired, voided or superseded code, none asked for, and an unknown or an Admin's email all
+get 400 `invalid-code`, and the 5th wrong try voids the code. Per IP, the code request gets 20 a day and the reset 30
+an hour, whatever they answer (`aulaflix.rate-limits.password-reset-codes.*`, `aulaflix.rate-limits.password-resets.*`).
+
+The codes are drawn from a CSPRNG and stored only as an HMAC-SHA256 under the secret file `aulaflix.codes.hmac-key`,
+which also covers the Account and the kind of code, `RESET` or `CHANGE`. A new key voids the codes already sent, and
+nothing else.
 
 ## Emails
 

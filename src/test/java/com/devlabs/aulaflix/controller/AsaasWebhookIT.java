@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import com.devlabs.aulaflix.Asaas;
 import com.devlabs.aulaflix.AsaasWebhooks;
 import com.devlabs.aulaflix.BffApi;
+import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.StoredWebhookEvents;
 import com.devlabs.aulaflix.TestcontainersConfiguration;
 
@@ -27,7 +28,8 @@ import com.devlabs.aulaflix.TestcontainersConfiguration;
  * application context of its own, with the same settings as every other integration test's.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"aulaflix.bff.key=" + BffApi.KEY, "aulaflix.scheduling.enabled=false"})
+        properties = {"aulaflix.bff.key=" + BffApi.KEY, "aulaflix.codes.hmac-key=" + IntegrationTest.CODES_HMAC_KEY,
+                "aulaflix.scheduling.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class AsaasWebhookIT {
 

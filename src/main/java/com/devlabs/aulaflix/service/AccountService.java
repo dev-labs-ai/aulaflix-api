@@ -1,11 +1,9 @@
 package com.devlabs.aulaflix.service;
 
 import java.time.Clock;
-import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.authentication.password.CompromisedPasswordChecker;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,8 +15,6 @@ import com.devlabs.aulaflix.dto.AccountSummary;
 import com.devlabs.aulaflix.dto.IssuedSession;
 import com.devlabs.aulaflix.exception.AdminNotFoundException;
 import com.devlabs.aulaflix.exception.EmailTakenException;
-import com.devlabs.aulaflix.exception.FieldViolation;
-import com.devlabs.aulaflix.exception.InvalidRequestException;
 import com.devlabs.aulaflix.repository.AccountRepository;
 
 @Service
@@ -28,13 +24,13 @@ public class AccountService {
 
     private final AccountRepository repository;
     private final PasswordEncoder passwordEncoder;
-    private final CompromisedPasswordChecker breachedPasswords;
+    private final BreachedPasswords breachedPasswords;
     private final StudentSignUps studentSignUps;
     private final SessionService sessions;
     private final Clock clock;
 
     public AccountService(AccountRepository repository, PasswordEncoder passwordEncoder,
-                          CompromisedPasswordChecker breachedPasswords, StudentSignUps studentSignUps,
+                          BreachedPasswords breachedPasswords, StudentSignUps studentSignUps,
                           SessionService sessions, Clock clock) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
@@ -93,7 +89,7 @@ public class AccountService {
         AccountEntity admin = repository.findByEmailAndRole(AccountInputRules.normalizeEmail(email), Role.ADMIN)
                 .orElseThrow(AdminNotFoundException::new);
         AccountInputRules.requireValid(AccountInputRules.newPasswordViolations(newPassword));
-        requireUnbreached(newPassword);
+        breachedPasswords.requireUnbreached("password", newPassword);
         admin.setPasswordHash(passwordEncoder.encode(newPassword));
         int endedSessions = sessions.endAll(admin);
         log.info("Changed the password of Admin Account {} and ended its {} sessions", admin.getId(), endedSessions);
@@ -111,14 +107,8 @@ public class AccountService {
         if (repository.existsByEmail(normalizedEmail)) {
             throw new EmailTakenException();
         }
-        requireUnbreached(password);
+        breachedPasswords.requireUnbreached("password", password);
         return new NewAccount(normalizedEmail, normalizedName);
-    }
-
-    private void requireUnbreached(String password) {
-        if (breachedPasswords.check(password).isCompromised()) {
-            throw new InvalidRequestException(List.of(new FieldViolation("password", "breached")));
-        }
     }
 
     private static AccountSummary summary(AccountEntity account) {

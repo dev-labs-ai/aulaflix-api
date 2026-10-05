@@ -25,6 +25,12 @@ final class AccountInputRules {
     private static final Pattern EMAIL_SHAPE =
             Pattern.compile("[^\\s@]+@[^\\s@]+\\.[^\\s@]+", Pattern.UNICODE_CHARACTER_CLASS);
 
+    /** Exactly 6 ASCII digits, as the emails carry them. */
+    private static final Pattern CODE_SHAPE = Pattern.compile("[0-9]{6}");
+
+    private static final String PASSWORD = "password";
+    private static final String NEW_PASSWORD = "newPassword";
+
     private AccountInputRules() {
     }
 
@@ -45,7 +51,7 @@ final class AccountInputRules {
 
     /** Checks the normalized email and name, and the password as typed. */
     static List<FieldViolation> violations(String email, String name, String password) {
-        return Stream.of(emailViolation(email), nameViolation(name), newPasswordViolation(password))
+        return Stream.of(emailViolation(email), nameViolation(name), newPasswordViolation(PASSWORD, password))
                 .flatMap(Optional::stream)
                 .toList();
     }
@@ -59,7 +65,14 @@ final class AccountInputRules {
     }
 
     static List<FieldViolation> newPasswordViolations(String password) {
-        return newPasswordViolation(password).stream().toList();
+        return newPasswordViolation(PASSWORD, password).stream().toList();
+    }
+
+    /** Checks a password reset: the normalized email, the code, and the new password, sent as {@code newPassword}. */
+    static List<FieldViolation> resetViolations(String email, String code, String newPassword) {
+        return Stream.of(emailViolation(email), codeViolation(code), newPasswordViolation(NEW_PASSWORD, newPassword))
+                .flatMap(Optional::stream)
+                .toList();
     }
 
     /**
@@ -95,22 +108,32 @@ final class AccountInputRules {
         return Optional.empty();
     }
 
-    private static Optional<FieldViolation> newPasswordViolation(String password) {
+    private static Optional<FieldViolation> newPasswordViolation(String field, String password) {
         if (password.isEmpty()) {
-            return violation("password", "required");
+            return violation(field, "required");
         }
         if (characters(password) < PASSWORD_MIN_CHARACTERS) {
-            return violation("password", "too-short");
+            return violation(field, "too-short");
         }
         if (password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_UTF8_BYTES) {
-            return violation("password", "too-long");
+            return violation(field, "too-long");
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<FieldViolation> codeViolation(String code) {
+        if (code.isEmpty()) {
+            return violation("code", "required");
+        }
+        if (!CODE_SHAPE.matcher(code).matches()) {
+            return violation("code", "invalid-format");
         }
         return Optional.empty();
     }
 
     private static Optional<FieldViolation> signInPasswordViolation(String password) {
         if (password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_UTF8_BYTES) {
-            return violation("password", "too-long");
+            return violation(PASSWORD, "too-long");
         }
         return Optional.empty();
     }

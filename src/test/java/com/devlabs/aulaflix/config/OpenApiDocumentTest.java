@@ -333,7 +333,8 @@ class OpenApiDocumentTest extends IntegrationTest {
                         "/v1/sessions/current", "/v1/email-confirmations", "/v1/account/confirmation-emails",
                         "/v1/account/enrollments", "/v1/account/enrollments/{courseId}",
                         "/v1/account/completed-lessons/{lessonId}", "/v1/account/lesson-visits",
-                        "/v1/account/orders", "/v1/account/orders/{code}");
+                        "/v1/account/orders", "/v1/account/orders/{code}", "/v1/password-reset-codes",
+                        "/v1/password-resets");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -732,6 +733,52 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.EnrolledCourse.properties").asMap()
                 .containsOnlyKeys("id", "slug", "title", "area", "icon", "tone", "status");
+    }
+
+    @Test
+    void documentsThePasswordResetWithoutASession() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/password-reset-codes": {
+                      "post": {
+                        "tags": ["Password reset"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PasswordResetCodeRequest"}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/password-resets": {
+                      "post": {
+                        "tags": ["Password reset"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PasswordResetRequest"}}
+                          }
+                        },
+                        "responses": {
+                          "200": {
+                            "content": {
+                              "application/json": {"schema": {"$ref": "#/components/schemas/IssuedSession"}}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""");
+        assertResponsesIn("bff", "/v1/password-reset-codes", "post", "204", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/password-resets", "post", "200", "400", "401", "403", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/password-resets'].post.responses['400'].description").asString()
+                .contains("`invalid-request`", "`breached`", "`invalid-code`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.PasswordResetRequest.properties").asMap()
+                .containsOnlyKeys("email", "code", "newPassword");
     }
 
     @Test
