@@ -1,0 +1,6 @@
+# The build context is only what the image build reads; everything else, secrets and .git included, stays out
+*
+!mvnw
+!pom.xml
+!.mvn/wrapper/maven-wrapper.properties
+!src/main/
