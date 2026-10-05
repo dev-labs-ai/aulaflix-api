@@ -40,9 +40,7 @@ public class OrderExpiry {
     public void expireDue() {
         for (OrderUpkeep.DueOrder due : upkeep.expiredBy(clock.instant())) {
             try {
-                if (paidElseDeleted(due)) {
-                    continue;
-                }
+                payOrDeleteTheCharge(due);
             } catch (AsaasUnavailableException failure) {
                 log.warn("Left Order {} and the rest to expire on the next run: {}", due.code(),
                         failure.getMessage());
@@ -55,22 +53,18 @@ public class OrderExpiry {
     }
 
     /**
-     * Answers whether the re-read shows the charge paid, which pays the Order; when it does not, deletes the charge,
-     * unless it is deleted already. An Order whose charge's id never came back was left by an API stopped while placing
-     * it, before its QR code reached the Student, so nothing under its code was paid: every charge there goes.
+     * Pays the Order when the re-read shows its charge paid, which leaves it nothing to expire; otherwise deletes the
+     * charge, unless it is deleted already. An Order whose charge's id never came back was left by an API stopped while
+     * placing it, before its QR code reached the Student, so nothing under its code was paid: every charge there goes.
      */
-    private boolean paidElseDeleted(OrderUpkeep.DueOrder due) {
+    private void payOrDeleteTheCharge(OrderUpkeep.DueOrder due) {
         if (due.chargeId() == null) {
             asaas.chargesUnder(due.code()).forEach(asaas::deleteCharge);
-            return false;
+            return;
         }
         AsaasGateway.Charge charge = asaas.charge(due.chargeId());
-        if (payments.applyReread(charge)) {
-            return true;
-        }
-        if (!charge.deleted()) {
+        if (!payments.applyReread(charge) && !charge.deleted()) {
             asaas.deleteCharge(due.chargeId());
         }
-        return false;
     }
 }
