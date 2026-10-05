@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 
@@ -617,11 +619,11 @@ class OpenApiDocumentTest extends IntegrationTest {
 
     @Test
     void documentsEveryStatusEachAccountAndSessionEndpointCanAnswer() {
-        assertResponsesIn("bff", "/v1/account-lookups", "post", "200", "400", "401", "403", "429", "500");
-        assertResponsesIn("bff", "/v1/accounts", "post", "201", "400", "401", "403", "409", "429", "500");
+        assertResponsesIn("bff", "/v1/account-lookups", "post", "200", "400", "401", "403", "429", "500", "503");
+        assertResponsesIn("bff", "/v1/accounts", "post", "201", "400", "401", "403", "409", "429", "500", "503");
         assertResponsesIn("bff", "/v1/account", "get", "200", "400", "401", "403", "429", "500");
         assertResponsesIn("bff", "/v1/account", "put", "200", "400", "401", "403", "429", "500");
-        assertResponsesIn("bff", "/v1/sessions", "post", "201", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/sessions", "post", "201", "400", "401", "403", "429", "500", "503");
         assertResponsesIn("bff", "/v1/sessions/current", "delete", "204", "400", "401", "403", "429", "500");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/sessions'].post.responses['429'].description").asString()
@@ -735,6 +737,51 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .containsOnlyKeys("id", "slug", "title", "area", "icon", "tone", "status");
     }
 
+    /** Each operation with a soft limit takes the token, and may ask for it, or fail to verify it. */
+    @ParameterizedTest
+    @ValueSource(strings = {"/v1/account-lookups", "/v1/accounts", "/v1/sessions", "/v1/password-reset-codes"})
+    void documentsTheCaptchaTokenWhereASoftLimitAsksForIt(String path) {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "%s": {
+                      "post": {
+                        "parameters": [
+                          {"name": "AulaFlix-Captcha-Token", "in": "header"},
+                          {"name": "AulaFlix-Client-IP", "in": "header", "required": true}
+                        ],
+                        "responses": {
+                          "503": {
+                            "headers": {"Retry-After": {"schema": {"type": "integer"}}},
+                            "content": {
+                              "application/problem+json": {"schema": {"$ref": "#/components/schemas/ProblemDetail"}}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""".formatted(path));
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['%s'].post.parameters[?(@.name == 'AulaFlix-Captcha-Token' && @.required)]"
+                        .formatted(path)).asArray().isEmpty();
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['%s'].post.responses['429'].description".formatted(path)).asString()
+                .contains("`captcha-required`", "`rate-limited`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['%s'].post.responses['503'].description".formatted(path)).asString()
+                .contains("`captcha-unavailable`");
+    }
+
+    @Test
+    void documentsTheCaptchaTokenNowhereElse() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths[*][*].parameters[?(@.name == 'AulaFlix-Captcha-Token')]").asArray()
+                .hasSize(4);
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/password-resets'].post.responses").asMap().doesNotContainKey("503");
+    }
+
     @Test
     void documentsThePasswordResetWithoutASession() {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
@@ -771,7 +818,8 @@ class OpenApiDocumentTest extends IntegrationTest {
                     }
                   }
                 }""");
-        assertResponsesIn("bff", "/v1/password-reset-codes", "post", "204", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/password-reset-codes", "post",
+                "204", "400", "401", "403", "429", "500", "503");
         assertResponsesIn("bff", "/v1/password-resets", "post", "200", "400", "401", "403", "429", "500");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/password-resets'].post.responses['400'].description").asString()

@@ -5,6 +5,8 @@ import java.net.URI;
 import jakarta.validation.Valid;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -55,6 +57,8 @@ public class SessionController {
             `invalid-request` with `errors`, or `invalid-credentials` for a wrong password, an unknown email and an \
             Admin's email alike""")
     @ApiResponse(responseCode = "429", description = "`sign-in-blocked`, with `Retry-After` in seconds")
+    @Parameter(in = ParameterIn.HEADER, name = OpenApiConfiguration.CAPTCHA_TOKEN, schema = @Schema(type = "string"),
+            description = "A Turnstile token, needed past 10 look-ups and sign-ins per IP in 15 minutes")
     public ResponseEntity<IssuedSession> signIn(@Valid @RequestBody SignInRequest request) {
         return ResponseEntity.created(CURRENT_SESSION)
                 .body(signIn.signInAsStudent(request.email(), request.password()));

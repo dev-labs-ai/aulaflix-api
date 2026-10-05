@@ -24,13 +24,16 @@ done
 # …and an API key of your Asaas sandbox account (Integrações > Chaves de API), as secrets/aulaflix.asaas.api-key
 # The token Asaas sends with each webhook delivery: 32 to 255 characters, registered with the sandbox's webhook
 openssl rand -hex 32 > secrets/aulaflix.asaas.webhook-token
+# Cloudflare Turnstile's test secret, which passes every token, to match the web's test site key
+echo 1x0000000000000000000000000000000AA > secrets/aulaflix.turnstile.secret-key
 
 docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on 127.0.0.1:9000, Mailpit (below)
 ./mvnw spring-boot:run   # or run AulaflixApiApplication from the IDE, from the repository root
 ```
 
 The API applies its Flyway migrations when it starts. It refuses to start without a BFF key or a codes HMAC key of at
-least 32 characters, without the storage's two keys, or without the Asaas key and webhook token.
+least 32 characters, without the storage's two keys, without the Asaas key and webhook token, or without the Turnstile
+secret.
 
 AIStor Free answers every S3 request with a denial until it has its license, which the same file serves locally, in
 the tests and in production. On every `up`, `storage-init` creates the private `videos` bucket and the API's two
@@ -53,6 +56,7 @@ The secret files, and the services that mount them:
 | `storage.root-user`, `storage.root-password` | storage, storage-init |
 | `minio.license` | storage |
 | `aulaflix.asaas.api-key`, `aulaflix.asaas.webhook-token` | api |
+| `aulaflix.turnstile.secret-key` | api |
 
 Compose mounts each file as it is on the host, with its owner and mode, and the API's image runs as the unprivileged
 user 10001, so a file the `api` service mounts must be readable by that user: `chmod 644 secrets/*` locally, which is
@@ -232,6 +236,20 @@ an hour, whatever they answer (`aulaflix.rate-limits.password-reset-codes.*`, `a
 The codes are drawn from a CSPRNG and stored only as an HMAC-SHA256 under the secret file `aulaflix.codes.hmac-key`,
 which also covers the Account and the kind of code, `RESET` or `CHANGE`. A new key voids the codes already sent, and
 nothing else.
+
+### A CAPTCHA past the soft limits
+
+Normal use never meets a CAPTCHA: one appears only past a soft limit, when traffic looks abusive. Per client IP, the
+email look-up and sign-in together get 10 within 15 minutes, sign-up 3 an hour and the reset-code request 5 an hour;
+for everyone at once, 300, 60 and 60 an hour (`aulaflix.soft-limits.<operation>.per-ip.*` and `.global.*`). Past
+either, each request needs a fresh Cloudflare Turnstile token, which the BFF forwards in `AulaFlix-Captcha-Token`;
+without one, or with one Turnstile rejects (invalid, expired after 5 minutes, or already spent), the answer is 429
+`captcha-required`, without `Retry-After`, and the web shows Turnstile and sends the request again. The API verifies
+each token at `aulaflix.turnstile.base-url`'s `siteverify` with the secret file `aulaflix.turnstile.secret-key` and the
+client IP as `remoteip`; when `siteverify` fails or stays silent past `aulaflix.turnstile.timeout` (3 s), the answer is
+503 `captcha-unavailable` with `Retry-After` (`aulaflix.turnstile.retry-after`, 10 s). The hard limits keep counting
+every request, those with a solved CAPTCHA included. A client IP crossing a soft limit is logged once per window, at
+WARN, and so is a global limit tripping, in a line of its own.
 
 ## Emails
 
@@ -507,7 +525,7 @@ webroot from `/var/www/certbot` with one certificate for the four names at `/etc
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from
-`secrets/minio.license`, which CI writes there from a secret. HIBP and Asaas are played by WireMock, in the tests' JVM. Mailpit runs in Testcontainers too, behind a relay in the tests' JVM
+`secrets/minio.license`, which CI writes there from a secret. HIBP, Asaas and Turnstile's `siteverify` are played by WireMock, in the tests' JVM. Mailpit runs in Testcontainers too, behind a relay in the tests' JVM
 that a test can take down or silence, and the tests read what it received through its REST API. No job runs on its
 own in the tests: a test drains the outbox itself, once, synchronously. `./mvnw verify` also runs the `*IT` tests, which make the
 signed uploads and playback requests over real HTTP. Mutation testing runs with

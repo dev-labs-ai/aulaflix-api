@@ -40,6 +40,11 @@ class SessionControllerTest extends IntegrationTest {
         students = new StudentApi(mvc);
     }
 
+    /** A browser that solves the CAPTCHA its IP's soft limit asks for past 10 sign-ins within 15 minutes. */
+    private StudentApi solvingCaptchas() {
+        return new StudentApi(new BffApi(mvc).solvingCaptchas());
+    }
+
     @Test
     void signsInWithTheRightCredentialsForThirtyDays() {
         String email = newEmail();
@@ -137,6 +142,7 @@ class SessionControllerTest extends IntegrationTest {
 
     @Test
     void blocksAnEmailForFifteenMinutesAfterTenFailuresEvenWithTheRightPassword() {
+        students = solvingCaptchas();
         String email = newEmail();
         students.signedUp(email, PASSWORD);
         Instant start = Instant.parse("2026-10-05T12:00:00Z");
@@ -169,6 +175,7 @@ class SessionControllerTest extends IntegrationTest {
 
     @Test
     void blocksAnEmailWithoutAnAccountToo() {
+        students = solvingCaptchas();
         String email = newEmail();
         for (int failure = 0; failure < 10; failure++) {
             assertThat(students.signIn(email, PASSWORD)).hasStatus(HttpStatus.BAD_REQUEST);
@@ -180,6 +187,7 @@ class SessionControllerTest extends IntegrationTest {
 
     @Test
     void neverCountsAStudentsFailuresAgainstAnAdminNorTheOtherWayRound() {
+        students = solvingCaptchas();
         String admin = "admin-" + newEmail();
         accounts.createAdmin(admin, "Ana", PASSWORD);
         String student = newEmail();

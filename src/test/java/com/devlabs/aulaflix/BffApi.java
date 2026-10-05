@@ -1,6 +1,8 @@
 package com.devlabs.aulaflix;
 
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MockMvcTester.MockMvcRequestBuilder;
@@ -8,6 +10,8 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester.MockMvcRequest
 /**
  * Calls the API the way the BFF does: with its key and the browser's IP, and without a session for the catalog. Each
  * instance is a browser of its own, at an IP no other test uses, so no test inherits another's rate-limit counters.
+ * Past a soft limit, a browser that {@linkplain #solvingCaptchas() solves CAPTCHAs} sends a fresh token with each
+ * request, as the BFF does once the page has shown Turnstile.
  */
 public final class BffApi {
 
@@ -16,16 +20,34 @@ public final class BffApi {
 
     private static final AtomicInteger NETWORKS = new AtomicInteger();
 
+    private static final String CAPTCHA_TOKEN_HEADER = "AulaFlix-Captcha-Token";
+
     private final MockMvcTester mvc;
     private final String clientIp;
+    private final Supplier<Optional<String>> captchaTokens;
 
     public BffApi(MockMvcTester mvc) {
         this(mvc, newClientIp());
     }
 
     public BffApi(MockMvcTester mvc, String clientIp) {
+        this(mvc, clientIp, Optional::empty);
+    }
+
+    private BffApi(MockMvcTester mvc, String clientIp, Supplier<Optional<String>> captchaTokens) {
         this.mvc = mvc;
         this.clientIp = clientIp;
+        this.captchaTokens = captchaTokens;
+    }
+
+    /** The same browser, sending a fresh token, which {@link Turnstile} accepts, with every request. */
+    public BffApi solvingCaptchas() {
+        return new BffApi(mvc, clientIp, () -> Optional.of(Turnstile.newToken()));
+    }
+
+    /** The same browser, sending this token with every request. */
+    public BffApi withCaptchaToken(String token) {
+        return new BffApi(mvc, clientIp, () -> Optional.of(token));
     }
 
     /** An IPv4 address in 10.0.0.0/8 that no other test of this run has used. */
@@ -61,8 +83,9 @@ public final class BffApi {
     }
 
     private MockMvcRequestBuilder fromTheBff(MockMvcRequestBuilder request) {
-        return request
-                .header("AulaFlix-BFF-Key", KEY)
+        request.header("AulaFlix-BFF-Key", KEY)
                 .header("AulaFlix-Client-IP", clientIp);
+        captchaTokens.get().ifPresent(token -> request.header(CAPTCHA_TOKEN_HEADER, token));
+        return request;
     }
 }

@@ -3,6 +3,8 @@ package com.devlabs.aulaflix.controller;
 import jakarta.validation.Valid;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.devlabs.aulaflix.config.OpenApiConfiguration;
 import com.devlabs.aulaflix.dto.IssuedSession;
 import com.devlabs.aulaflix.dto.PasswordResetCodeRequest;
 import com.devlabs.aulaflix.dto.PasswordResetRequest;
@@ -39,6 +42,8 @@ public class PasswordResetController {
             whatever they answer.""")
     @ApiResponse(responseCode = "204", description = "A code is on its way, if the email is a Student's")
     @ApiResponse(responseCode = "400", description = "`invalid-request` with `errors`")
+    @Parameter(in = ParameterIn.HEADER, name = OpenApiConfiguration.CAPTCHA_TOKEN, schema = @Schema(type = "string"),
+            description = "A Turnstile token, needed past 5 requests per IP in an hour")
     public ResponseEntity<Void> sendCode(@Valid @RequestBody PasswordResetCodeRequest request) {
         resets.sendCode(request.email());
         return ResponseEntity.noContent().build();

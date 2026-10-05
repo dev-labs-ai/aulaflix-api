@@ -21,7 +21,8 @@ import com.devlabs.aulaflix.StudentApi;
 
 /**
  * The cheapest ways to learn who has an Account get the strictest limits per client IP (ADR 0005): the email look-up
- * and sign-in together, 60 an hour, and sign-up, 10 a day. Every request counts, whatever it answers.
+ * and sign-in together, 60 an hour, and sign-up, 10 a day. Every request counts, whatever it answers, and those that
+ * carry a solved CAPTCHA too: past the soft limits, the browsers here solve one with each request.
  */
 class AccountFlowLimitTest extends IntegrationTest {
 
@@ -33,7 +34,7 @@ class AccountFlowLimitTest extends IntegrationTest {
     void refusesThe61stLookUpOrSignInFromOneIpWithinAnHour() {
         String email = newEmail();
         new StudentApi(mvc).signedUp(email, PASSWORD);
-        StudentApi students = new StudentApi(mvc);
+        StudentApi students = solvingCaptchas();
         assertThat(statuses(LOOK_UPS_AND_SIGN_INS_AN_HOUR / 2, request -> students.lookUp(email)))
                 .containsOnly(HttpStatus.OK.value());
         assertThat(statuses(LOOK_UPS_AND_SIGN_INS_AN_HOUR / 2, request -> students.signIn(email, PASSWORD)))
@@ -45,7 +46,7 @@ class AccountFlowLimitTest extends IntegrationTest {
 
     @Test
     void countsEveryLookUpAndSignInWhateverItAnswers() {
-        StudentApi students = new StudentApi(mvc);
+        StudentApi students = solvingCaptchas();
         assertThat(statuses(20, request -> students.lookUp("not an email")))
                 .containsOnly(HttpStatus.BAD_REQUEST.value());
         assertThat(statuses(20, request -> students.signIn(newEmail(), PASSWORD)))
@@ -58,7 +59,7 @@ class AccountFlowLimitTest extends IntegrationTest {
     @Test
     void servesTheIpAgainOnceTheClockPassesTheHour() {
         Instant start = clock.instant();
-        StudentApi students = new StudentApi(mvc);
+        StudentApi students = solvingCaptchas();
         assertThat(statuses(LOOK_UPS_AND_SIGN_INS_AN_HOUR, request -> students.lookUp(newEmail())))
                 .containsOnly(HttpStatus.OK.value());
 
@@ -70,7 +71,7 @@ class AccountFlowLimitTest extends IntegrationTest {
 
     @Test
     void servesAnotherIpWhileOneIsRefused() {
-        StudentApi refused = new StudentApi(mvc);
+        StudentApi refused = solvingCaptchas();
         assertThat(statuses(LOOK_UPS_AND_SIGN_INS_AN_HOUR, request -> refused.lookUp(newEmail())))
                 .containsOnly(HttpStatus.OK.value());
         assertRateLimited(refused.lookUp(newEmail()), "/v1/account-lookups", "3600");
@@ -81,7 +82,7 @@ class AccountFlowLimitTest extends IntegrationTest {
     @Test
     void refusesThe11thSignUpFromOneIpWithinADay() {
         Instant start = clock.instant();
-        StudentApi students = new StudentApi(mvc);
+        StudentApi students = solvingCaptchas();
         assertThat(statuses(SIGN_UPS_A_DAY / 2, request -> students.signUp("Bia", newEmail(), "short")))
                 .containsOnly(HttpStatus.BAD_REQUEST.value());
         assertThat(statuses(SIGN_UPS_A_DAY / 2, request -> students.signUp("Bia", newEmail(), PASSWORD)))
@@ -95,7 +96,7 @@ class AccountFlowLimitTest extends IntegrationTest {
 
     @Test
     void countsSignUpsApartFromLookUpsAndSignIns() {
-        StudentApi students = new StudentApi(mvc);
+        StudentApi students = solvingCaptchas();
         assertThat(statuses(LOOK_UPS_AND_SIGN_INS_AN_HOUR, request -> students.lookUp(newEmail())))
                 .containsOnly(HttpStatus.OK.value());
 
@@ -113,6 +114,10 @@ class AccountFlowLimitTest extends IntegrationTest {
         assertThat(statuses(LOOK_UPS_AND_SIGN_INS_AN_HOUR + 1, request -> students.account(token)))
                 .containsOnly(HttpStatus.OK.value());
         assertThat(students.lookUp(newEmail())).hasStatusOk();
+    }
+
+    private StudentApi solvingCaptchas() {
+        return new StudentApi(new BffApi(mvc).solvingCaptchas());
     }
 
     private static List<Integer> statuses(int requests, IntFunction<MvcTestResult> request) {

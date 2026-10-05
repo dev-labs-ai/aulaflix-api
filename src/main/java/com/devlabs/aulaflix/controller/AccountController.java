@@ -5,6 +5,8 @@ import java.net.URI;
 import jakarta.validation.Valid;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -56,6 +58,8 @@ public class AccountController {
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = AccountLookup.class)))
     @ApiResponse(responseCode = "400", description = "`invalid-request` with `errors`")
+    @Parameter(in = ParameterIn.HEADER, name = OpenApiConfiguration.CAPTCHA_TOKEN, schema = @Schema(type = "string"),
+            description = "A Turnstile token, needed past 10 look-ups and sign-ins per IP in 15 minutes")
     public AccountLookup lookUp(@Valid @RequestBody AccountLookupRequest request) {
         return new AccountLookup(accounts.exists(request.email()));
     }
@@ -69,6 +73,8 @@ public class AccountController {
                     schema = @Schema(implementation = IssuedSession.class)))
     @ApiResponse(responseCode = "400", description = "`invalid-request` with `errors`")
     @ApiResponse(responseCode = "409", description = "`email-taken`: an Account has the email, an Admin's included")
+    @Parameter(in = ParameterIn.HEADER, name = OpenApiConfiguration.CAPTCHA_TOKEN, schema = @Schema(type = "string"),
+            description = "A Turnstile token, needed past 3 sign-ups per IP in an hour")
     public ResponseEntity<IssuedSession> signUp(@Valid @RequestBody SignUpRequest request) {
         return ResponseEntity.created(OWN_ACCOUNT)
                 .body(accounts.signUp(request.email(), request.name(), request.password()));

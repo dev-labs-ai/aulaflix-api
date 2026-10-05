@@ -89,8 +89,9 @@ class CheckoutLimitTest extends IntegrationTest {
         assertThat(elsewhere.placePix(NO_SUCH_COURSE, null)).hasStatus(HttpStatus.CONFLICT);
     }
 
+    /** Signed up from the IP, solving the CAPTCHA its soft limit on sign-ups asks for past the 3rd. */
     private StudentOrders newStudent(BffApi bff) {
-        return new StudentOrders(bff, new StudentApi(bff).signedUp(StudentApi.newEmail(), PASSWORD));
+        return new StudentOrders(bff, new StudentApi(bff.solvingCaptchas()).signedUp(StudentApi.newEmail(), PASSWORD));
     }
 
     private static List<Integer> placements(StudentOrders student, int count) {

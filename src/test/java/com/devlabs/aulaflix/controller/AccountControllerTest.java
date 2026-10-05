@@ -147,12 +147,13 @@ class AccountControllerTest extends IntegrationTest {
     void createsOneAccountWhenTheSameEmailSignsUpSeveralTimesAtOnce() {
         String email = newEmail();
         int signUps = 4;
+        StudentApi browser = new StudentApi(new BffApi(mvc).solvingCaptchas());
 
         List<Integer> statuses;
         try (ExecutorService browsers = Executors.newFixedThreadPool(signUps)) {
             List<CompletableFuture<Integer>> answers = IntStream.range(0, signUps)
                     .mapToObj(signUp -> CompletableFuture.supplyAsync(
-                            () -> students.signUp("Bia", email, PASSWORD).getResponse().getStatus(), browsers))
+                            () -> browser.signUp("Bia", email, PASSWORD).getResponse().getStatus(), browsers))
                     .toList();
             statuses = answers.stream().map(CompletableFuture::join).toList();
         }

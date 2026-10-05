@@ -387,7 +387,7 @@ class PasswordResetControllerTest extends IntegrationTest {
     @Test
     void refusesThe21stCodeRequestFromOneIpWithinADay() {
         Instant start = clock.instant();
-        StudentApi visitor = new StudentApi(mvc);
+        StudentApi visitor = new StudentApi(new BffApi(mvc).solvingCaptchas());
         for (int request = 0; request < 20; request++) {
             assertThat(visitor.requestResetCode(newEmail())).hasStatus(HttpStatus.NO_CONTENT);
         }
