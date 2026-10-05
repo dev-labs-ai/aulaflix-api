@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 import com.devlabs.aulaflix.AdminApi;
@@ -29,6 +30,7 @@ import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.Cpfs;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.Mailpit;
+import com.devlabs.aulaflix.StoredOutboxEmails;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.StudentOrders;
@@ -69,6 +71,9 @@ class OrderReconciliationTest extends IntegrationTest {
     @Autowired
     private Mailpit mailpit;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @Value("${aulaflix.asaas.reconciliation-delay}")
     private Duration delay;
 
@@ -108,7 +113,7 @@ class OrderReconciliationTest extends IntegrationTest {
         new AsaasWebhooks(mvc).deliver(paymentEvent(newEventId(), "PAYMENT_CONFIRMED", charge, "CONFIRMED",
                 PIX_PRICE_CENTS, code));
         worker.processPending();
-        outbox.drain();
+        sendTheStudentsEmails();
 
         assertThat(orders.get(code)).bodyJson().isLenientlyEqualTo("""
                 {"status": "PAID", "paidAt": "%s", "duplicatePayment": false}""".formatted(paidAt));
@@ -116,6 +121,26 @@ class OrderReconciliationTest extends IntegrationTest {
                 {"items": [{"status": "ACTIVE", "origin": "ORDER", "orderCode": "%s", "course": {"id": %d}}],
                  "totalItems": 1}""".formatted(code, course));
         assertThat(purchaseEmails()).hasSize(1);
+    }
+
+    /** The Student already has the Course: the payment reconciliation finds is a Duplicate payment, alerting Admins. */
+    @Test
+    void paysAnOrderAsaasShowsPaidWhileTheCourseIsHeldAsADuplicatePayment() {
+        String code = orders.placedPix(course, cpf);
+        chargeIs(code, "CONFIRMED");
+        new AdminEnrollments(mvc, new AdminApi(mvc).sessionToken(adminEmail, PASSWORD)).granted(studentEmail, course);
+        clock.set(clock.instant().plus(delay));
+
+        reconciliation.reconcile();
+        List<String> queuedAlerts = new StoredOutboxEmails(jdbc).recipientsOf("DUPLICATE_PAYMENT_ALERT", code);
+        sendTheStudentsEmails();
+
+        assertThat(orders.get(code)).bodyJson().isLenientlyEqualTo("""
+                {"status": "PAID", "duplicatePayment": true}""");
+        assertThat(queuedAlerts).contains(adminEmail);
+        assertThat(studentsEnrollments()).bodyJson().isLenientlyEqualTo("""
+                {"items": [{"status": "ACTIVE", "origin": "MANUAL"}], "totalItems": 1}""");
+        assertThat(purchaseEmails()).isEmpty();
     }
 
     @Test
@@ -233,6 +258,15 @@ class OrderReconciliationTest extends IntegrationTest {
         String charge = Asaas.chargeOf(code);
         asaas.chargeIs(charge, status, PIX_PRICE_CENTS, code, false);
         return charge;
+    }
+
+    /**
+     * Sends what is queued to the Student, and nothing else: a job pays whatever Order of the whole suite is due, and
+     * a Duplicate payment alerts every Admin the suite has made, hundreds of them.
+     */
+    private void sendTheStudentsEmails() {
+        new StoredOutboxEmails(jdbc).discardPendingExceptTo(studentEmail);
+        outbox.drain();
     }
 
     /** The Student's Enrollments, as an Admin signed in now finds them, whatever the clock did to earlier sessions. */

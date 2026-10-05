@@ -29,6 +29,7 @@ import com.devlabs.aulaflix.Cpfs;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.Mailpit;
 import com.devlabs.aulaflix.StoredOrders;
+import com.devlabs.aulaflix.StoredOutboxEmails;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.StudentOrders;
@@ -102,7 +103,7 @@ class PixOrderExpiryTest extends IntegrationTest {
         clock.set(clock.instant().plus(PIX_LIFETIME));
 
         expiry.expireDue();
-        outbox.drain();
+        sendTheStudentsEmails();
 
         assertThat(orders.get(code)).hasStatusOk().bodyJson().satisfies(order -> {
             assertThat(order).extractingPath("$.status").isEqualTo("EXPIRED");
@@ -152,7 +153,7 @@ class PixOrderExpiryTest extends IntegrationTest {
         Instant paidAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
 
         expiry.expireDue();
-        outbox.drain();
+        sendTheStudentsEmails();
 
         assertThat(orders.get(code)).bodyJson().isLenientlyEqualTo("""
                 {"status": "PAID", "paidAt": "%s"}""".formatted(paidAt));
@@ -219,6 +220,27 @@ class PixOrderExpiryTest extends IntegrationTest {
         assertThat(asaas.deletionsOf(charge)).isEqualTo(2);
     }
 
+    /** The Student already has the Course: the payment the re-read finds is a Duplicate payment, alerting Admins. */
+    @Test
+    void paysAnOrderAsaasShowsPaidWhileTheCourseIsHeldAsADuplicatePayment() {
+        String code = orders.placedPix(course, Cpfs.newCpf());
+        String charge = chargeIs(code, "CONFIRMED");
+        new AdminEnrollments(mvc, new AdminApi(mvc).sessionToken(adminEmail, PASSWORD)).granted(studentEmail, course);
+        clock.set(clock.instant().plus(PIX_LIFETIME));
+
+        expiry.expireDue();
+        List<String> queuedAlerts = new StoredOutboxEmails(jdbc).recipientsOf("DUPLICATE_PAYMENT_ALERT", code);
+        sendTheStudentsEmails();
+
+        assertThat(orders.get(code)).bodyJson().isLenientlyEqualTo("""
+                {"status": "PAID", "duplicatePayment": true}""");
+        assertThat(queuedAlerts).contains(adminEmail);
+        assertThat(asaas.deletionsOf(charge)).isZero();
+        assertThat(studentsEnrollments()).bodyJson().isLenientlyEqualTo("""
+                {"items": [{"status": "ACTIVE", "origin": "MANUAL"}], "totalItems": 1}""");
+        assertThat(emailsButTheWelcome()).isEmpty();
+    }
+
     /** A charge Asaas does not know cannot be paid, and leaves nothing to delete. */
     @Test
     void expiresAnOrderWhoseChargeAsaasRefusesToReRead() {
@@ -274,6 +296,15 @@ class PixOrderExpiryTest extends IntegrationTest {
 
         assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("EXPIRED");
         assertThat(asaas.deletionsOf(Asaas.chargeOf(code))).isOne();
+    }
+
+    /**
+     * Sends what is queued to the Student, and nothing else: a job pays whatever Order of the whole suite is due, and
+     * a Duplicate payment alerts every Admin the suite has made, hundreds of them.
+     */
+    private void sendTheStudentsEmails() {
+        new StoredOutboxEmails(jdbc).discardPendingExceptTo(studentEmail);
+        outbox.drain();
     }
 
     /** The Student's Enrollments, as an Admin signed in now finds them, whatever the clock did to earlier sessions. */
