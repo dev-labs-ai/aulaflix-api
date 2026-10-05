@@ -3,8 +3,6 @@ package com.devlabs.aulaflix.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.List;
-
 import org.jetbrains.jetCheck.Generator;
 import org.jetbrains.jetCheck.PropertyChecker;
 import org.junit.jupiter.api.Test;
@@ -19,10 +17,10 @@ import com.devlabs.aulaflix.exception.InvalidRequestException;
  * The API checks a CPF's check digits itself. CPFs are generated with {@link Cpfs}, which works the check digits out
  * from the Receita Federal's rule on its own, and changed one digit at a time.
  *
- * <p>The rule cannot catch every one-digit change: in the 1st digit, whose weight in the second check digit is 11, and
- * in the 6th, whose two weights sum to 11, a change of one up or down keeps both check digits whenever their
- * remainders sit at 0 or 1, which map to the same digit. 10390865605 and 20390865605 are both CPFs, for one. So the
- * property holds for the other nine digits, and the two blind spots are shown for what they are.
+ * <p>The rule cannot catch every one-digit change, because remainders 0 and 1 both give the check digit 0. A change
+ * keeps both check digits only in two places: the 1st digit, raised or lowered by 1, whose weights are 10 and 11; and
+ * the 6th, raised or lowered by 2 or 9, whose weights are 5 and 6. 10390865605 and 20390865605 are both CPFs, and so
+ * are 92947822200 and 92947622200. So the property is that a changed CPF stays valid only in those two blind spots.
  */
 class CpfTest {
 
@@ -31,12 +29,9 @@ class CpfTest {
             .map(base -> Cpfs.withCheckDigits("%09d".formatted(base)))
             .suchThat(cpf -> cpf.chars().distinct().count() > 1);
 
-    /** The positions, from 0, where the rule catches every one-digit change. */
-    private static final List<Integer> CAUGHT_POSITIONS = List.of(1, 2, 3, 4, 6, 7, 8, 9, 10);
-
     private static final Generator<Change> CHANGES = Generator.from(data -> new Change(
             data.generate(CPFS),
-            data.generate(Generator.sampledFrom(CAUGHT_POSITIONS)),
+            data.generate(Generator.integers(0, 10)),
             data.generate(Generator.integers(1, 9))));
 
     @Test
@@ -45,14 +40,20 @@ class CpfTest {
     }
 
     @Test
-    void rejectsAnyChangeOfOneDigitTheRuleCatches() {
-        PropertyChecker.forAll(CHANGES, change -> !Cpf.isValid(change.applied()));
+    void rejectsAnyChangeOfOneDigitOutsideTheRulesBlindSpots() {
+        PropertyChecker.forAll(CHANGES, change -> !Cpf.isValid(change.applied()) || change.inABlindSpot());
     }
 
     @Test
     void acceptsTheTwoCpfsOneStepApartInTheFirstDigit() {
         assertThat(Cpf.isValid("10390865605")).isTrue();
         assertThat(Cpf.isValid("20390865605")).isTrue();
+    }
+
+    @Test
+    void acceptsTheTwoCpfsTwoStepsApartInTheSixthDigit() {
+        assertThat(Cpf.isValid("92947822200")).isTrue();
+        assertThat(Cpf.isValid("92947622200")).isTrue();
     }
 
     @Test
@@ -94,8 +95,17 @@ class CpfTest {
     private record Change(String cpf, int position, int step) {
 
         String applied() {
-            char changed = (char) ('0' + (cpf.charAt(position) - '0' + step) % 10);
-            return cpf.substring(0, position) + changed + cpf.substring(position + 1);
+            return cpf.substring(0, position) + changedDigit() + cpf.substring(position + 1);
+        }
+
+        /** The 1st digit moved by 1, or the 6th by 2 or 9: the only changes the check digits can miss. */
+        boolean inABlindSpot() {
+            int distance = Math.abs(changedDigit() - cpf.charAt(position));
+            return position == 0 && distance == 1 || position == 5 && (distance == 2 || distance == 9);
+        }
+
+        private char changedDigit() {
+            return (char) ('0' + (cpf.charAt(position) - '0' + step) % 10);
         }
     }
 }

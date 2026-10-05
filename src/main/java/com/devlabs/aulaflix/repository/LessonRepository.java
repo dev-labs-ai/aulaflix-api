@@ -45,15 +45,14 @@ public interface LessonRepository extends JpaRepository<LessonEntity, Long> {
     List<CourseLessonCount> countLessonsOfOnSaleCourses();
 
     /**
-     * How many Lessons each of the Courses has, and how many of them are published, all in one query; a Course with no
-     * Lesson is left out.
+     * Every Lesson of the Courses, "Em breve" ones included, in the outline's order: by Module, then within it. Each
+     * Course's Lessons keep that order among themselves.
      */
     @Query("""
-            select l.course.id as courseId, count(l) as lessonCount, count(l.publishedAt) as publishedCount
-            from LessonEntity l
+            select l from LessonEntity l join l.module m
             where l.course.id in :courseIds
-            group by l.course.id""")
-    List<CourseLessonCounts> countLessonsByCourse(@Param("courseIds") Collection<Long> courseIds);
+            order by m.position, l.position""")
+    List<LessonEntity> findOutlinesOf(@Param("courseIds") Collection<Long> courseIds);
 
     /** The id of the Lesson's Course, read without loading the Lesson. */
     @Query("select l.course.id from LessonEntity l where l.id = :id")
@@ -68,14 +67,5 @@ public interface LessonRepository extends JpaRepository<LessonEntity, Long> {
         long getCourseId();
 
         long getLessonCount();
-    }
-
-    interface CourseLessonCounts {
-
-        long getCourseId();
-
-        long getLessonCount();
-
-        long getPublishedCount();
     }
 }

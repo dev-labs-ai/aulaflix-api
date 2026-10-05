@@ -232,14 +232,23 @@ and 2465 take `spring.mail.ssl.enabled=true` instead.
 
 ## Meus cursos and Progress
 
-With the Student's token, `GET /v1/account/enrollments` answers "Meus cursos": `{ items }`, every active Enrollment,
-oldest first, each with its `course` `{ id, slug, title, area, icon, tone, status }` and `progress`
-`{ completed, published, total, percent, standing }`. `total` counts every Lesson, "Em breve" ones included, and
+With the Student's token, `GET /v1/account/enrollments` answers "Meus cursos": `{ items, highlightedCourseId? }`,
+every active Enrollment, each with its `course` `{ id, slug, title, area, icon, tone, status }`, `progress`
+`{ completed, published, total, percent, standing }` and `resumeLesson` `{ id, slug, number, title }`. `total` counts every Lesson, "Em breve" ones included, and
 `percent` is `completed ÷ total` rounded down, so it reaches 100 only once the Course is `FINISHED`. The `standing` is
 `NOT_STARTED`, `IN_PROGRESS`, `CAUGHT_UP` (every published Lesson done, some still "Em breve") or `FINISHED`.
 `GET /v1/account/enrollments/{courseId}` answers one of them with its `completedLessonIds`, or 404
 `enrollment-not-found` when the Student has no active Enrollment in the Course. An Enrollment in a Coming soon Course
-comes without `progress` (or `completedLessonIds`) until the launch.
+comes without `progress` and `resumeLesson` (or `completedLessonIds`) until the launch, and is never highlighted.
+
+The Lesson's page calls `POST /v1/account/lesson-visits` `{ lessonId }` when it mounts (no `GET` records a visit). It
+answers 204, keeps only the last visit per Course, and has the same guards as the marks below; a missing or
+non-numeric `lessonId` gets 400 `invalid-request`. The list puts the most recently visited Course first, and the
+Courses never visited after them, oldest Enrollment first. `highlightedCourseId` ("Continuar de onde parou") is the
+most recently visited Course with a published Lesson left to complete, and is omitted when none has one. The
+`resumeLesson`, in the outline's current order, is the first that applies: the last Lesson opened, if not completed;
+the next unfinished published Lesson after it; the first unfinished published Lesson (also the rule before any
+visit); with every Lesson done, the first published Lesson. Its `number` is the Syllabus's.
 
 `PUT` and `DELETE /v1/account/completed-lessons/{lessonId}` mark a Lesson as completed and take the mark back; both
 answer 204 and are idempotent. Only a published Lesson of an On sale Course takes a mark (any other, an id of any shape
