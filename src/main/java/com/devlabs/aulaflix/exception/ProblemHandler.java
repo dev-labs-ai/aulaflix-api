@@ -84,6 +84,18 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "An Account with this email already exists: sign in with its password."), request);
     }
 
+    @ExceptionHandler(InvalidConfirmationLinkException.class)
+    ResponseEntity<Object> invalidConfirmationLink(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-confirmation-link", "Invalid confirmation link",
+                "The link is unknown, expired, or replaced by a newer one: ask for a new one."), request);
+    }
+
+    @ExceptionHandler(EmailAlreadyConfirmedException.class)
+    ResponseEntity<Object> emailAlreadyConfirmed(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "email-already-confirmed", "Email already confirmed",
+                "The Account's email is already confirmed: there is no link to send."), request);
+    }
+
     @ExceptionHandler(SignInBlockedException.class)
     ResponseEntity<Object> signInBlocked(SignInBlockedException refusal, HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.TOO_MANY_REQUESTS, "sign-in-blocked", "Sign-in blocked",

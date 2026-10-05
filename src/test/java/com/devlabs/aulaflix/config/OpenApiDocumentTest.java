@@ -330,7 +330,7 @@ class OpenApiDocumentTest extends IntegrationTest {
                 .extractingPath("$.paths").asMap()
                 .containsOnlyKeys("/v1/courses", "/v1/courses/{slug}", "/v1/lessons/{lessonId}/playback",
                         "/v1/account-lookups", "/v1/accounts", "/v1/account", "/v1/sessions",
-                        "/v1/sessions/current");
+                        "/v1/sessions/current", "/v1/email-confirmations", "/v1/account/confirmation-emails");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -628,6 +628,38 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.paths['/v1/accounts'].post.responses['409'].description").asString()
                 .contains("`email-taken`");
+    }
+
+    @Test
+    void documentsTheConfirmationLinkWithoutASessionAndItsResendWithOne() {
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "paths": {
+                    "/v1/email-confirmations": {
+                      "post": {
+                        "tags": ["Email confirmation"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/EmailConfirmationRequest"}}
+                          }
+                        }
+                      }
+                    },
+                    "/v1/account/confirmation-emails": {
+                      "post": {"tags": ["Email confirmation"], "security": [{"bearer": [], "bffKey": []}]}
+                    }
+                  }
+                }""");
+        assertResponsesIn("bff", "/v1/email-confirmations", "post", "204", "400", "401", "403", "429", "500");
+        assertResponsesIn("bff", "/v1/account/confirmation-emails", "post", "204", "400", "401", "403", "409", "429",
+                "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/email-confirmations'].post.responses['400'].description").asString()
+                .contains("`invalid-request`", "`invalid-confirmation-link`");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/account/confirmation-emails'].post.responses['409'].description")
+                .asString().contains("`email-already-confirmed`");
     }
 
     @Test

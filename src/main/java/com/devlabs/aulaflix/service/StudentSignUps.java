@@ -15,7 +15,7 @@ import com.devlabs.aulaflix.repository.AccountRepository;
 
 /**
  * The one transactional step of a sign-up, on a bean of its own so that the checks and bcrypt before it hold no pooled
- * connection: storing the Student's Account and opening its first session.
+ * connection: storing the Student's Account, opening its first session and queuing the confirmation link.
  */
 @Component
 class StudentSignUps {
@@ -24,11 +24,14 @@ class StudentSignUps {
 
     private final AccountRepository repository;
     private final SessionService sessions;
+    private final EmailConfirmationService confirmations;
     private final Clock clock;
 
-    StudentSignUps(AccountRepository repository, SessionService sessions, Clock clock) {
+    StudentSignUps(AccountRepository repository, SessionService sessions, EmailConfirmationService confirmations,
+                   Clock clock) {
         this.repository = repository;
         this.sessions = sessions;
+        this.confirmations = confirmations;
         this.clock = clock;
     }
 
@@ -46,6 +49,7 @@ class StudentSignUps {
         AccountEntity stored = repository.save(new AccountEntity(
                 student.email(), student.name(), passwordHash, Role.STUDENT, clock.instant()));
         IssuedSession session = sessions.open(stored);
+        confirmations.sendFirstLink(stored);
         log.info("Student Account {} signed up", stored.getId());
         return session;
     }

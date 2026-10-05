@@ -64,6 +64,13 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Mailpit catches every email the API sends locally: SMTP on 1025, without TLS, and the inbox at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
   # The API's image, built from this repository. `docker compose run --rm api admin …` runs the admin command in it,
   # with a terminal for the password. Only what differs from the IDE's run is set here, and nothing secret.
   api:
@@ -75,6 +82,9 @@ services:
       # aulaflix.storage.internal-endpoint: the API reads and deletes at storage:9000, but signs URLs for the default
       # public endpoint, localhost:9000, where the browser and curl reach the storage
       AULAFLIX_STORAGE_INTERNALENDPOINT: http://storage:9000
+      # spring.mail.*: the outbox sends to Mailpit on the Compose network, without TLS, as from the IDE
+      SPRING_MAIL_HOST: mailpit
+      SPRING_MAIL_PORT: "1025"
     secrets:
       - spring.datasource.password
       - aulaflix.bff.key
@@ -91,6 +101,9 @@ services:
         condition: service_healthy
       storage-init:
         condition: service_completed_successfully
+      # The outbox connects only when it sends, and a failed send waits for the next try, so started is enough
+      mailpit:
+        condition: service_started
     # The heap is 75% of it (-XX:MaxRAMPercentage=75), as in production
     mem_limit: 1536m
     # Longer than Spring Boot's graceful shutdown, 30 s at most, so docker stop never kills it mid-drain
