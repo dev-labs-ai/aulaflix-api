@@ -18,4 +18,8 @@ public interface SessionRepository extends JpaRepository<SessionEntity, Long> {
     @Modifying
     @Query("delete from SessionEntity s where s.account.id = :accountId")
     int deleteByAccountId(@Param("accountId") long accountId);
+
+    @Modifying
+    @Query("delete from SessionEntity s where s.account.id = :accountId and s.id <> :keptId")
+    int deleteByAccountIdExcept(@Param("accountId") long accountId, @Param("keptId") long keptId);
 }
