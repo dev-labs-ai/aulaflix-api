@@ -92,7 +92,7 @@ class OrderEntityTest {
         course.setPriceCents(49700);
         course.setPixDiscountPercent(10);
         AccountEntity student = new AccountEntity("bia@example.com", "Bia", "hash", Role.STUDENT, PLACED_AT);
-        OrderEntity order = OrderEntity.pix("K7M2Q9XA", student, course, 44730, PLACED_AT,
+        OrderEntity order = OrderEntity.pix("K7M2Q9XA", student, course, 10, 44730, PLACED_AT,
                 PLACED_AT.plus(Duration.ofMinutes(30)));
         Consumer<OrderEntity> paid = paying -> paying.pay(PLACED_AT.plusSeconds(60));
         switch (status) {

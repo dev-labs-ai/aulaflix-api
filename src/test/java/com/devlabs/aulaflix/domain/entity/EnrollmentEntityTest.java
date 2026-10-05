@@ -74,7 +74,7 @@ class EnrollmentEntityTest {
     private EnrollmentEntity grantedByAnOrder() {
         course.setPriceCents(49700);
         course.setPixDiscountPercent(10);
-        OrderEntity order = OrderEntity.pix("K7M2Q9XA", student, course, 44730, STARTED_AT,
+        OrderEntity order = OrderEntity.pix("K7M2Q9XA", student, course, 10, 44730, STARTED_AT,
                 STARTED_AT.plus(Duration.ofMinutes(30)));
         order.pay(STARTED_AT);
         return EnrollmentEntity.grantedByOrder(order, STARTED_AT);

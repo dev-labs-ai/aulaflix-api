@@ -118,20 +118,29 @@ public class OrderEntity {
     protected OrderEntity() {
     }
 
-    /** A Pix Order for the Pix price, awaiting payment until it expires; its charge comes once Asaas makes it. */
-    public static OrderEntity pix(String code, AccountEntity student, CourseEntity course, int amountCents,
-                                  Instant createdAt, Instant expiresAt) {
-        return awaiting(PaymentMethod.PIX, code, student, course, amountCents, createdAt, expiresAt);
+    /**
+     * A Pix Order for the Pix price, awaiting payment until it expires; its charge comes once Asaas makes it. The
+     * discount is the Course's at the moment, none being 0.
+     */
+    public static OrderEntity pix(String code, AccountEntity student, CourseEntity course, int pixDiscountPercent,
+                                  int amountCents, Instant createdAt, Instant expiresAt) {
+        return awaiting(PaymentMethod.PIX, code, student, course, pixDiscountPercent, amountCents, createdAt,
+                expiresAt);
     }
 
-    /** A card Order for the Course's price, awaiting payment until it expires; its Checkout comes once Asaas makes it. */
-    public static OrderEntity card(String code, AccountEntity student, CourseEntity course, Instant createdAt,
-                                   Instant expiresAt) {
-        return awaiting(PaymentMethod.CARD, code, student, course, course.getPriceCents(), createdAt, expiresAt);
+    /**
+     * A card Order for the Course's price, awaiting payment until it expires; its Checkout comes once Asaas makes it.
+     * It keeps the Pix discount of the moment, none being 0, though a card never takes it.
+     */
+    public static OrderEntity card(String code, AccountEntity student, CourseEntity course, int pixDiscountPercent,
+                                   Instant createdAt, Instant expiresAt) {
+        return awaiting(PaymentMethod.CARD, code, student, course, pixDiscountPercent, course.getPriceCents(),
+                createdAt, expiresAt);
     }
 
     private static OrderEntity awaiting(PaymentMethod method, String code, AccountEntity student, CourseEntity course,
-                                        int amountCents, Instant createdAt, Instant expiresAt) {
+                                        int pixDiscountPercent, int amountCents, Instant createdAt,
+                                        Instant expiresAt) {
         OrderEntity order = new OrderEntity();
         order.code = code;
         order.student = student;
@@ -139,7 +148,7 @@ public class OrderEntity {
         order.method = method;
         order.status = OrderStatus.AWAITING_PAYMENT;
         order.listPriceCents = course.getPriceCents();
-        order.pixDiscountPercent = course.getPixDiscountPercent();
+        order.pixDiscountPercent = pixDiscountPercent;
         order.amountCents = amountCents;
         order.createdAt = createdAt;
         order.expiresAt = expiresAt;

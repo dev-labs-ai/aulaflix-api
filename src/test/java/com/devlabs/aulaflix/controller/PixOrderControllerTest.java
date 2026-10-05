@@ -232,6 +232,22 @@ class PixOrderControllerTest extends IntegrationTest {
                 assertThat(new BigDecimal(field(charge, "$.value").toString())).isEqualByComparingTo("252.45"));
     }
 
+    /** The Pix discount is optional: a Course without one sells by Pix at its price. */
+    @Test
+    void chargesThePriceByPixWhenTheCourseHasNoPixDiscount() {
+        String slug = newSlug();
+        long course = courses.onSale(slug);
+        String cpf = Cpfs.newCpf();
+        courses.putDocument(course, JsonPath.parse(AdminCourses.fullDocument(slug, courses.freeLessonOf(course)))
+                .delete("$.pixDiscountPercent").jsonString());
+
+        MvcTestResult placed = orders.placePix(course, cpf);
+
+        assertThat(placed).hasStatus(HttpStatus.CREATED).bodyJson().extractingPath("$.amountCents").isEqualTo(49700);
+        assertThat(asaas.chargesCreatedFor(Asaas.customerOf(cpf))).singleElement().satisfies(charge ->
+                assertThat(new BigDecimal(field(charge, "$.value").toString())).isEqualByComparingTo("497.00"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"", "5299822472", "529982247250", "529.982.247-2", "5299822472a", "52998224726",
             "52998224715", "11111111111", "00000000000", "529_982_247_25"})

@@ -17,6 +17,7 @@ import com.devlabs.aulaflix.domain.PaymentMethod;
 import com.devlabs.aulaflix.domain.entity.AccountEntity;
 import com.devlabs.aulaflix.domain.entity.CourseEntity;
 import com.devlabs.aulaflix.domain.entity.OrderEntity;
+import com.devlabs.aulaflix.dto.CoursePricing;
 import com.devlabs.aulaflix.dto.Order;
 import com.devlabs.aulaflix.exception.AlreadyEnrolledException;
 import com.devlabs.aulaflix.exception.CourseNotForSaleException;
@@ -81,17 +82,16 @@ class OrderPlacements {
             return Placement.ofExisting(OrderViews.withPayment(awaiting.get()));
         }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        CoursePricing pricing = Pricing.of(course);
         if (method == PaymentMethod.CARD) {
-            OrderEntity order = orders.save(OrderEntity.card(OrderCodes.next(), student, course, now,
-                    now.plus(CARD_LIFETIME)));
+            OrderEntity order = orders.save(OrderEntity.card(OrderCodes.next(), student, course,
+                    pricing.pixDiscountPercent(), now, now.plus(CARD_LIFETIME)));
             log.info("Student {} placed card Order {} for Course {}", studentId, order.getCode(), courseId);
             return Placement.of(order, null, null);
         }
         String cpfDigits = needsCpf ? Cpf.requireValid(cpf) : null;
-        int amountCents = Pricing.of(course.getPriceCents(), course.getPixDiscountPercent(),
-                course.getMaxInstallments()).pixPriceCents();
-        OrderEntity order = orders.save(OrderEntity.pix(OrderCodes.next(), student, course, amountCents, now,
-                now.plus(PIX_LIFETIME)));
+        OrderEntity order = orders.save(OrderEntity.pix(OrderCodes.next(), student, course,
+                pricing.pixDiscountPercent(), pricing.pixPriceCents(), now, now.plus(PIX_LIFETIME)));
         log.info("Student {} placed Pix Order {} for Course {}", studentId, order.getCode(), courseId);
         return Placement.of(order, customerId, cpfDigits);
     }

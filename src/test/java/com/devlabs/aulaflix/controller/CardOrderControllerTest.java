@@ -185,6 +185,19 @@ class CardOrderControllerTest extends IntegrationTest {
                         .isEqualByComparingTo("297.00"));
     }
 
+    /** The Pix discount is optional, and a card never takes it anyway. */
+    @Test
+    void placesACardOrderForACourseWithoutAPixDiscount() {
+        String slug = newSlug();
+        long course = courses.onSale(slug);
+        courses.putDocument(course, JsonPath.parse(AdminCourses.fullDocument(slug, courses.freeLessonOf(course)))
+                .delete("$.pixDiscountPercent").jsonString());
+
+        MvcTestResult placed = orders.placeCard(course);
+
+        assertThat(placed).hasStatus(HttpStatus.CREATED).bodyJson().extractingPath("$.amountCents").isEqualTo(49700);
+    }
+
     @Test
     void answersTheCardOrderAlreadyAwaitingPaymentWithoutANewCheckout() {
         long course = courses.onSale(newSlug());
