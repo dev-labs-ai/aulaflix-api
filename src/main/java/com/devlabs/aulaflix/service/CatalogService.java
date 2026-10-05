@@ -2,7 +2,6 @@ package com.devlabs.aulaflix.service;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -76,7 +75,7 @@ public class CatalogService {
                 course.getIcon(),
                 course.getTone(),
                 course.getStatus(),
-                onSale ? pricingOf(course) : null,
+                onSale ? Pricing.of(course) : null,
                 onSale ? Math.toIntExact(lessonCount) : null,
                 comingSoon ? course.getPlannedTopics().size() : null);
     }
@@ -94,7 +93,7 @@ public class CatalogService {
                 course.getIcon(),
                 course.getTone(),
                 course.getStatus(),
-                onSale ? pricingOf(course) : null,
+                onSale ? Pricing.of(course) : null,
                 onSale ? syllabus.stream().mapToInt(module -> module.lessons().size()).sum() : null,
                 comingSoon ? course.getPlannedTopics().size() : null,
                 course.getAbout(),
@@ -104,11 +103,5 @@ public class CatalogService {
                 onSale ? course.getFreeLessonId() : null,
                 syllabus,
                 comingSoon ? course.getPlannedTopics() : null);
-    }
-
-    /** On sale, the price and the installments are always set; a Course without a Pix discount has none. */
-    private static CoursePricing pricingOf(CourseEntity course) {
-        return Pricing.of(course.getPriceCents(), Objects.requireNonNullElse(course.getPixDiscountPercent(), 0),
-                course.getMaxInstallments());
     }
 }
