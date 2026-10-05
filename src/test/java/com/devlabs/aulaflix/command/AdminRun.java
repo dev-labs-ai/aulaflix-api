@@ -18,6 +18,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.devlabs.aulaflix.AistorContainer;
 import com.devlabs.aulaflix.Hibp;
+import com.devlabs.aulaflix.IntegrationTest;
 
 /**
  * Runs the jar's admin mode as {@code main} does, pointed at a test database, and notes what the started
@@ -31,8 +32,8 @@ final class AdminRun {
     private List<ScheduledTask> scheduledTasks = List.of();
 
     /**
-     * The storage only has to be configured: the API refuses to start without it, in admin mode too. HIBP is the
-     * tests' own, since a new password is checked against it.
+     * The storage and the codes' HMAC key only have to be configured: the API refuses to start without them, in admin
+     * mode too. HIBP is the tests' own, since a new password is checked against it.
      */
     AdminRun(String url, String username, String password, AistorContainer storage, Hibp hibp) {
         properties.put("spring.datasource.url", url);
@@ -40,6 +41,7 @@ final class AdminRun {
         properties.put("spring.datasource.password", password);
         storage.applicationProperties().forEach((name, value) -> properties.put(name, value.get()));
         hibp.applicationProperties().forEach((name, value) -> properties.put(name, value.get()));
+        properties.put("aulaflix.codes.hmac-key", IntegrationTest.CODES_HMAC_KEY);
     }
 
     static AdminRun against(PostgreSQLContainer postgres, AistorContainer storage, Hibp hibp) {

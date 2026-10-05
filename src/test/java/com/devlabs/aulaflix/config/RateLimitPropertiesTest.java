@@ -56,6 +56,20 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void allowsEachClientIp20ResetCodeRequestsADayByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::passwordResetCodeLimit)
+                .isEqualTo(new RateLimit("password-reset-codes", 20, Duration.ofDays(1))));
+    }
+
+    @Test
+    void allowsEachClientIp30ResetsAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::passwordResetLimit)
+                .isEqualTo(new RateLimit("password-resets", 30, Duration.ofHours(1))));
+    }
+
+    @Test
     void takesLowerLimitsFromConfiguration() {
         application.withPropertyValues("aulaflix.rate-limits.bff-requests.requests=5",
                         "aulaflix.rate-limits.bff-requests.window=10s",
@@ -77,7 +91,8 @@ class RateLimitPropertiesTest {
             "aulaflix.rate-limits.bff-requests.window=-1m", "aulaflix.rate-limits.bff-requests.window=999ms",
             "aulaflix.rate-limits.visitor-playback.requests=0", "aulaflix.rate-limits.visitor-playback.window=999ms",
             "aulaflix.rate-limits.look-ups-and-sign-ins.requests=0", "aulaflix.rate-limits.sign-ups.window=0s",
-            "aulaflix.rate-limits.email-confirmations.requests=0"})
+            "aulaflix.rate-limits.email-confirmations.requests=0",
+            "aulaflix.rate-limits.password-reset-codes.requests=0", "aulaflix.rate-limits.password-resets.window=0s"})
     void refusesToStartWithALimitThatCountsNothing(String property) {
         application.withPropertyValues(property).run(context -> assertThat(context).hasFailed());
     }

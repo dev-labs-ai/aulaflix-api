@@ -50,6 +50,11 @@ final class SignInFailures {
         byEmail.asMap().compute(email, (key, before) -> (before == null ? Failures.NONE : before).add(now));
     }
 
+    /** Forgets the email's failures and its block, as a reset does. */
+    void forget(String email) {
+        byEmail.invalidate(email);
+    }
+
     /** How many emails it holds failures for, once those it should forget are gone. */
     long emailsKept() {
         byEmail.cleanUp();
