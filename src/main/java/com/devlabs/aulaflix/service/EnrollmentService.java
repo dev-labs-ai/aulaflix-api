@@ -156,21 +156,22 @@ public class EnrollmentService {
     /**
      * Ends a manual Enrollment by hand, with a note. The ending is final, and sending the state the Enrollment is already
      * in changes nothing, so a retried ending is harmless and keeps the first one's note. One an Order granted ends only
-     * with its Order, through a Refund or a Reversal. The Enrollment's lock makes two endings go one at a time.
+     * with its Order, through a Refund or a Reversal, and is refused whatever its state. The Enrollment's lock makes two
+     * endings go one at a time.
      */
     @Transactional
     public AdminEnrollment changeStatus(long adminId, String enrollmentId, EnrollmentStatusChange change) {
         EnrollmentEntity enrollment = PathIds.parse(enrollmentId).flatMap(repository::findLockedById)
                 .orElseThrow(EnrollmentNotFoundException::new);
+        if (enrollment.getOrigin() == EnrollmentOrigin.ORDER) {
+            throw new PaidEnrollmentException();
+        }
         EnrollmentStatus current = statusOf(enrollment);
         if (change.status().compareTo(current) < 0) {
             throw new EnrollmentEndedException();
         }
         if (change.status() == current) {
             return adminView(enrollment);
-        }
-        if (enrollment.getOrigin() == EnrollmentOrigin.ORDER) {
-            throw new PaidEnrollmentException();
         }
         enrollment.endManually(now(), accounts.findById(adminId).orElseThrow(), change.note().strip());
         log.info("Admin {} ended Enrollment {}", adminId, enrollment.getId());

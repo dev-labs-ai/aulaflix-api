@@ -44,6 +44,7 @@ import com.devlabs.aulaflix.service.AccountService;
 import com.devlabs.aulaflix.service.EmailOutbox;
 import com.devlabs.aulaflix.service.OrderReconciliation;
 import com.devlabs.aulaflix.service.WebhookWorker;
+import com.jayway.jsonpath.JsonPath;
 
 /**
  * The Admin refunds an Order in one call, as the 7-day guarantee promises: Asaas, the WireMock stub, takes the refund,
@@ -146,6 +147,23 @@ class AdminRefundTest extends IntegrationTest {
             assertThat(email.subject()).isEqualTo("Reembolso do pedido " + code);
             assertThat(email.text()).contains("pedido " + code, "R$ 447,30", COURSE_TITLE);
         });
+    }
+
+    /** Ending by hand is for manual Enrollments only: a paid one gets 409 even once its refund ended it. */
+    @Test
+    void refusesAnAdminWhoEndsAPaidEnrollmentTheRefundEndedAlready() {
+        long course = courses.onSale(newSlug());
+        String code = paidOrder(course);
+        adminOrders.refund(code);
+        long enrollment = ((Number) JsonPath.read(AdminApi.body(enrollments.list("email=" + studentEmail)),
+                "$.items[0].id")).longValue();
+        String refunded = AdminApi.body(enrollments.get(Long.toString(enrollment)));
+
+        MvcTestResult ended = enrollments.end(enrollment, "Encerrar de novo.");
+
+        assertThat(ended).hasStatus(HttpStatus.CONFLICT).bodyJson().extractingPath("$.type")
+                .isEqualTo("https://aulaflix.com.br/problems/paid-enrollment");
+        assertThat(enrollments.get(Long.toString(enrollment))).bodyJson().isStrictlyEqualTo(refunded);
     }
 
     /** The refund is full: Asaas is asked for no value, which refunds all of it. */
