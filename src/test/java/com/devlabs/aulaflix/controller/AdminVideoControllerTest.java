@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +51,17 @@ class AdminVideoControllerTest extends IntegrationTest {
     private static final String PASSWORD = "correct horse battery";
     private static final String UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
     private static final DateTimeFormatter SIGNING_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
+
+    private static final Refusal NOT_MP4 = new Refusal("video-not-mp4", "Video not MP4",
+            "The file is not an MP4: encode it with ffmpeg as a faststart H.264/AAC MP4.");
+    private static final Refusal NOT_H264 = new Refusal("video-not-h264", "Video not H.264",
+            "The video is not H.264 (avc1 or avc3): encode it again with -c:v libx264.");
+    private static final Refusal NOT_AAC = new Refusal("audio-not-aac", "Audio not AAC",
+            "The audio is not AAC: encode it again with -c:a aac, or without audio, with -an.");
+    private static final Refusal TOO_SHORT = new Refusal("video-too-short", "Video too short",
+            "The video lasts under a second, once rounded to the nearest second.");
+    private static final Refusal NOT_FASTSTART = new Refusal("video-not-faststart", "Video not faststart",
+            "The file's index does not come before its media: encode it again with -movflags +faststart.");
 
     @Autowired
     private AccountService accounts;
@@ -114,6 +126,17 @@ class AdminVideoControllerTest extends IntegrationTest {
                           "durationSeconds": 3
                         }""".formatted(lesson, module));
         assertThat(storedVideos.keysOf(lesson)).containsExactly(objectKey);
+        assertThat(pathOf(playbackUrlOf(lesson))).isEqualTo("/videos/" + objectKey);
+    }
+
+    /** H.264 in either format, its parameter sets in the sample entry (avc1) or in band (avc3); audio is optional. */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({"H.264 as avc3 with AAC, avc3.mp4", "H.264 with no audio track, no-audio.mp4"})
+    void linksAnyFaststartH264Mp4WithAacAudioOrNone(String description, String fixture) {
+        long lesson = createLesson();
+        String objectKey = upload(lesson, fixture);
+
+        assertThat(link(lesson, objectKey)).hasStatusOk().bodyJson().extractingPath("$.durationSeconds").isEqualTo(2);
         assertThat(pathOf(playbackUrlOf(lesson))).isEqualTo("/videos/" + objectKey);
     }
 
@@ -222,6 +245,42 @@ class AdminVideoControllerTest extends IntegrationTest {
 
         assertThat(playback(lesson)).hasStatus(HttpStatus.NOT_FOUND);
         assertThat(storedVideos.keysOf(otherLesson)).containsExactly(othersVideo);
+    }
+
+    /**
+     * Each file linking refuses, with the problem that tells the Admin how to encode it again. A refused link changes
+     * nothing: the Lesson keeps its video and its duration, and no object is deleted, the refused upload included.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refusedFiles")
+    void refusesAFileThatIsNotAFaststartH264AacMp4AndChangesNothing(String description, byte[] content,
+                                                                      Refusal refusal) {
+        long lesson = createLesson(createModule(createCourse()), "O que é uma API", "o-que-e-uma-api");
+        String linked = upload(lesson, "three-seconds.mp4");
+        assertThat(link(lesson, linked)).hasStatusOk();
+        String refused = upload(lesson, content);
+
+        assertProblem(link(lesson, refused), "/v1/admin/lessons/%d/video".formatted(lesson), HttpStatus.CONFLICT,
+                refusal.name(), refusal.title(), refusal.detail());
+
+        assertThat(pathOf(playbackUrlOf(lesson))).isEqualTo("/videos/" + linked);
+        assertThat(storedDurationOf(lesson, "O que é uma API", "o-que-e-uma-api")).isEqualTo(3);
+        assertThat(storedVideos.keysOf(lesson)).containsExactlyInAnyOrder(linked, refused);
+    }
+
+    static Stream<Arguments> refusedFiles() {
+        return Stream.of(
+                Arguments.of("a WebM", fixture("vp9.webm"), NOT_MP4),
+                Arguments.of("a QuickTime movie of H.264 and AAC", fixture("quicktime.mov"), NOT_MP4),
+                Arguments.of("an empty file", new byte[0], NOT_MP4),
+                Arguments.of("a text file", "aula 1: o que é uma API".getBytes(StandardCharsets.UTF_8), NOT_MP4),
+                Arguments.of("an MP4 whose index comes after its media", fixture("not-faststart.mp4"),
+                        NOT_FASTSTART),
+                Arguments.of("a fragmented MP4", fixture("fragmented.mp4"), NOT_FASTSTART),
+                Arguments.of("an MP4 of HEVC", fixture("hevc.mp4"), NOT_H264),
+                Arguments.of("an MP4 of MP3 audio", fixture("mp3-audio.mp4"), NOT_AAC),
+                Arguments.of("an MP4 of Opus audio", fixture("opus-audio.mp4"), NOT_AAC),
+                Arguments.of("an MP4 of 0.4 seconds", fixture("under-half-a-second.mp4"), TOO_SHORT));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -406,9 +465,21 @@ class AdminVideoControllerTest extends IntegrationTest {
 
     /** The key a new upload URL names, with the fixture stored under it as the Admin's curl would leave it. */
     private String upload(long lesson, String fixture) {
+        return upload(lesson, fixture(fixture));
+    }
+
+    private String upload(long lesson, byte[] content) {
         String objectKey = objectKeyOf(requestUpload(lesson));
-        storedVideos.put(objectKey, fixture(fixture));
+        storedVideos.put(objectKey, content);
         return objectKey;
+    }
+
+    /** The duration the Lesson keeps, as an edit that changes nothing answers it. */
+    private int storedDurationOf(long lesson, String title, String slug) {
+        MvcTestResult edited = put("/v1/admin/lessons/" + lesson,
+                "{\"title\": \"%s\", \"slug\": \"%s\"}".formatted(title, slug));
+        assertThat(edited).hasStatusOk();
+        return JsonPath.read(body(edited), "$.durationSeconds");
     }
 
     private MvcTestResult requestUpload(long lesson) {
@@ -490,4 +561,7 @@ class AdminVideoControllerTest extends IntegrationTest {
                 .exchange();
     }
 
+    /** One of the problems a refused link answers. */
+    private record Refusal(String name, String title, String detail) {
+    }
 }

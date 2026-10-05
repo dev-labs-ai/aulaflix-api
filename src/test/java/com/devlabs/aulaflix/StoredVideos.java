@@ -53,8 +53,22 @@ public final class StoredVideos implements AutoCloseable {
     }
 
     /**
-     * A tiny faststart H.264/AAC MP4 from {@code src/test/resources/videos}, made with ffmpeg from its test source and
-     * a sine: {@code -t <seconds> -c:v libx264 -profile:v baseline -c:a aac -movflags +faststart}.
+     * A tiny file from {@code src/test/resources/videos}, made with ffmpeg from its test source at 64x36 and 10 fps and
+     * an 8 kHz sine. {@code three-seconds.mp4} and {@code five-seconds.mp4} are faststart H.264/AAC MP4s: {@code -t
+     * <seconds> -c:v libx264 -profile:v baseline -c:a aac -movflags +faststart}. Each of the others, 2 seconds long
+     * unless its name says otherwise, changes that command once:
+     * <ul>
+     *   <li>{@code avc3.mp4}: {@code -tag:v avc3};</li>
+     *   <li>{@code no-audio.mp4}: no sine;</li>
+     *   <li>{@code not-faststart.mp4}: no {@code -movflags};</li>
+     *   <li>{@code fragmented.mp4}: {@code -movflags frag_keyframe+empty_moov};</li>
+     *   <li>{@code hevc.mp4}: {@code -c:v libx265 -tag:v hvc1};</li>
+     *   <li>{@code mp3-audio.mp4}: {@code -c:a libmp3lame -ar 32000 -b:a 8k};</li>
+     *   <li>{@code opus-audio.mp4}: {@code -c:a libopus -b:a 6k};</li>
+     *   <li>{@code under-half-a-second.mp4}: {@code -t 0.4};</li>
+     *   <li>{@code quicktime.mov}: written as a QuickTime movie;</li>
+     *   <li>{@code vp9.webm}: {@code -c:v libvpx-vp9 -c:a libopus -b:a 6k}, written as WebM.</li>
+     * </ul>
      */
     public static byte[] fixture(String name) {
         try (InputStream in = StoredVideos.class.getResourceAsStream("/videos/" + name)) {

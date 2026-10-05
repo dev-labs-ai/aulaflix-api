@@ -117,6 +117,27 @@ class AdminVideoLogsTest extends IntegrationTest {
                 .doesNotContain(url, URI.create(url).getRawQuery(), signatureOf(url)));
     }
 
+    /** The Admin is told only that the file is not an MP4; the log says why, for whoever looks into it. */
+    @Test
+    void logsWhyAFileIsNotAnMp4AtWarn() {
+        String email = "admin-" + UUID.randomUUID() + "@aulaflix.com.br";
+        accounts.createAdmin(email, "Ana", PASSWORD);
+        token = new AdminApi(mvc).sessionToken(email, PASSWORD);
+        long lesson = new AdminCourses(mvc, token).lessonOfANewDraft();
+        MvcTestResult upload = send(HttpMethod.POST, "/v1/admin/lessons/%d/video-uploads".formatted(lesson), "");
+        String objectKey = JsonPath.read(body(upload), "$.objectKey");
+        storedVideos.put(objectKey, fixture("quicktime.mov"));
+        appender.list.clear();
+
+        link(lesson, objectKey);
+
+        assertThat(appender.list).filteredOn(line -> line.getLevel() == Level.WARN)
+                .singleElement()
+                .satisfies(line -> assertThat(line.getFormattedMessage()).isEqualTo(
+                        "Refused PUT /v1/admin/lessons/%d/video: video-not-mp4; the file is a QuickTime movie"
+                                .formatted(lesson)));
+    }
+
     /** One line, whose values are exactly the ids given. */
     private static void assertNamesOnly(List<ILoggingEvent> lines, Object... ids) {
         assertThat(lines).singleElement()

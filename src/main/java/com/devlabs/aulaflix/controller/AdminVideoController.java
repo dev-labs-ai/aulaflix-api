@@ -66,7 +66,9 @@ public class AdminVideoController {
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Link an uploaded video", description = """
             Makes the uploaded object the Lesson's video, in place of any other, and reads its duration from the \
-            file's header. Linking never publishes. Once linked, every other object under the Lesson's prefix is \
+            file's header, never fetching its media. The file must be a faststart H.264/AAC MP4 that lasts a \
+            second once rounded to the nearest second, or the link is refused with the first of its problems and \
+            nothing changes. Linking never publishes. Once linked, every other object under the Lesson's prefix is \
             deleted: the previous video and any abandoned upload.""")
     @ApiResponse(responseCode = "200", description = "The Lesson with its duration",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -74,7 +76,11 @@ public class AdminVideoController {
     @ApiResponse(responseCode = "400", description = "`invalid-request`, with a code for each field in `errors`")
     @ApiResponse(responseCode = "404", description = "`lesson-not-found`")
     @ApiResponse(responseCode = "409", description = """
-            `video-not-found`: the key was not issued for this Lesson, or nothing was uploaded under it""")
+            `video-not-found`: the key was not issued for this Lesson, or nothing was uploaded under it; \
+            `video-not-mp4`: the file is no MP4 that the header can be read from, a QuickTime movie included; \
+            `video-not-faststart`: its index does not come before its media, or it is fragmented; `video-not-h264`: \
+            it has no video track, or one neither `avc1` nor `avc3`; `audio-not-aac`: it has an audio track that is \
+            not AAC; or `video-too-short`: it lasts under a second, rounded to the nearest second""")
     public AdminLesson link(@AuthenticationPrincipal AuthenticatedAccount admin, @PathVariable String lessonId,
                             @Valid @RequestBody VideoLinkRequest request) {
         return videos.link(admin.accountId(), lessonId, request);

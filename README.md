@@ -100,10 +100,13 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json
     -d '{"objectKey": "lessons/21/…mp4"}' http://localhost:8080/v1/admin/lessons/21/video
 ```
 
-Linking a new upload replaces the Lesson's video and deletes every other object under its prefix, abandoned uploads
-included; there is no unlink. Linking never publishes. `GET /v1/admin/lessons/{lessonId}/playback` answers a URL that
-plays the linked video for 4 hours, in any state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes
-its videos too.
+Linking reads the file's header, never its media, and refuses anything but a faststart H.264/AAC MP4 that lasts a
+second once rounded, with a 409 naming the first problem: `video-not-mp4` (a QuickTime movie included),
+`video-not-faststart` (a fragmented MP4 included), `video-not-h264` (`avc1` or `avc3`), `audio-not-aac` (no audio at
+all is fine) or `video-too-short`. A refused link changes nothing. Linking a new upload replaces the Lesson's video
+and deletes every other object under its prefix, abandoned uploads included; there is no unlink. Linking never
+publishes. `GET /v1/admin/lessons/{lessonId}/playback` answers a URL that plays the linked video for 4 hours, in any
+state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes its videos too.
 
 ## The public catalog
 

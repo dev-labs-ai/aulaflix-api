@@ -158,6 +158,40 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 request);
     }
 
+    /** The Admin is told only that the file is not an MP4; the line says why, for whoever looks into it. */
+    @ExceptionHandler(VideoNotMp4Exception.class)
+    ResponseEntity<Object> videoNotMp4(VideoNotMp4Exception refusal, HttpServletRequest request) {
+        log.warn("Refused {} {}: video-not-mp4; {}", request.getMethod(), request.getRequestURI(), refusal.reason());
+        return respond(new Refusal(HttpStatus.CONFLICT, "video-not-mp4", "Video not MP4",
+                "The file is not an MP4: encode it with ffmpeg as a faststart H.264/AAC MP4."), new HttpHeaders(),
+                Map.of());
+    }
+
+    @ExceptionHandler(VideoNotFaststartException.class)
+    ResponseEntity<Object> videoNotFaststart(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "video-not-faststart", "Video not faststart",
+                "The file's index does not come before its media: encode it again with -movflags +faststart."),
+                request);
+    }
+
+    @ExceptionHandler(VideoNotH264Exception.class)
+    ResponseEntity<Object> videoNotH264(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "video-not-h264", "Video not H.264",
+                "The video is not H.264 (avc1 or avc3): encode it again with -c:v libx264."), request);
+    }
+
+    @ExceptionHandler(AudioNotAacException.class)
+    ResponseEntity<Object> audioNotAac(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "audio-not-aac", "Audio not AAC",
+                "The audio is not AAC: encode it again with -c:a aac, or without audio, with -an."), request);
+    }
+
+    @ExceptionHandler(VideoTooShortException.class)
+    ResponseEntity<Object> videoTooShort(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.CONFLICT, "video-too-short", "Video too short",
+                "The video lasts under a second, once rounded to the nearest second."), request);
+    }
+
     @ExceptionHandler(VideoNotLinkedException.class)
     ResponseEntity<Object> videoNotLinked(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.NOT_FOUND, "video-not-linked", "Video not linked",

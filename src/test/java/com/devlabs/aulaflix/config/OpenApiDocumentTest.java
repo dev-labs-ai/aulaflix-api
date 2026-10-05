@@ -237,6 +237,15 @@ class OpenApiDocumentTest extends IntegrationTest {
     }
 
     @Test
+    void documentsEveryProblemLinkingAVideoCanAnswer() {
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
+                .extractingPath("$.paths['/v1/admin/lessons/{lessonId}/video'].put.responses['409'].description")
+                .asString()
+                .contains("`video-not-found`", "`video-not-mp4`", "`video-not-faststart`", "`video-not-h264`",
+                        "`audio-not-aac`", "`video-too-short`");
+    }
+
+    @Test
     void documentsTheVideoEndpointsAsAdminOnly() {
         assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().isLenientlyEqualTo("""
                 {
