@@ -48,6 +48,17 @@ class AsaasPropertiesTest {
         });
     }
 
+    /** Reconciliation leaves an Order a few minutes for its webhook to come first. */
+    @Test
+    void expiresOrdersEveryMinuteAndReconcilesEveryTwoThoseAwaitingPaymentForFiveByDefault() {
+        application.run(context -> {
+            AsaasProperties asaas = context.getBean(AsaasProperties.class);
+            assertThat(asaas.expiryInterval()).isEqualTo(Duration.ofMinutes(1));
+            assertThat(asaas.reconciliationInterval()).isEqualTo(Duration.ofMinutes(2));
+            assertThat(asaas.reconciliationDelay()).isEqualTo(Duration.ofMinutes(5));
+        });
+    }
+
     /** Asaas takes a token of 32 to 255 characters. */
     @ParameterizedTest
     @ValueSource(ints = {32, 255})
@@ -60,7 +71,9 @@ class AsaasPropertiesTest {
     @ValueSource(strings = {"aulaflix.asaas.api-key=", "aulaflix.asaas.api-key= ", "aulaflix.asaas.base-url=",
             "aulaflix.asaas.timeout=0s", "aulaflix.asaas.retry-after=999ms", "aulaflix.asaas.webhook-token=",
             "aulaflix.asaas.webhook-token=                                ",
-            "aulaflix.asaas.webhook-token=0123456789012345678901234567890", "aulaflix.asaas.webhook-interval=0s"})
+            "aulaflix.asaas.webhook-token=0123456789012345678901234567890", "aulaflix.asaas.webhook-interval=0s",
+            "aulaflix.asaas.expiry-interval=0s", "aulaflix.asaas.reconciliation-interval=0s",
+            "aulaflix.asaas.reconciliation-delay=999ms"})
     void refusesToStartWithoutAnyOfItsSettings(String setting) {
         application.withPropertyValues(setting).run(context -> assertThat(context).hasFailed());
     }

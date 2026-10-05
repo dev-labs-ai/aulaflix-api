@@ -98,10 +98,24 @@ class OrderPlacements {
         return OrderViews.withPayment(order);
     }
 
-    /** Cancels the Order after Asaas failed it, unless something else moved it on meanwhile. */
+    /**
+     * Cancels the Order after Asaas failed it, unless something else moved it on meanwhile. Once a charge was asked
+     * for, one may be at Asaas whatever Asaas answered, so the Order keeps it to delete until it is known to be gone.
+     */
     @Transactional
-    void cancel(long orderId) {
-        orders.findById(orderId).orElseThrow().cancel();
+    void cancel(long orderId, boolean chargeAskedFor) {
+        OrderEntity order = orders.findById(orderId).orElseThrow();
+        if (chargeAskedFor) {
+            order.cancelLeavingChargesToDelete();
+        } else {
+            order.cancel();
+        }
+    }
+
+    /** The cancelled Order's one charge was deleted by its id: nothing is left at Asaas to look for. */
+    @Transactional
+    void chargesDeleted(long orderId) {
+        orders.findById(orderId).orElseThrow().chargesDeleted();
     }
 
     /**

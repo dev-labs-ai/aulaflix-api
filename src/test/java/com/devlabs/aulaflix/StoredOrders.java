@@ -5,9 +5,10 @@ import java.security.SecureRandom;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Inserts Orders straight into the {@code orders} table, for the races the HTTP contract cannot set up on its own: a
- * placement is refused while the Student has the Course, so a second Order of that Course can only be the leftover of a
- * race, such as a Pix paid after the Student switched to card.
+ * Writes the {@code orders} table directly, for the states the HTTP contract cannot set up on its own. A placement is
+ * refused while the Student has the Course, so a second Order of that Course can only be the leftover of a race, such
+ * as a Pix paid after the Student switched to card; and an Order without its charge's id is one the API stopped placing
+ * between making the charge at Asaas and keeping its id.
  */
 public final class StoredOrders {
 
@@ -35,6 +36,21 @@ public final class StoredOrders {
                         from orders where code = ?""",
                 copy, Asaas.chargeOf(copy), code);
         return copy;
+    }
+
+    /**
+     * Cancels the Order with its charge left payable at Asaas, as the switch to the other method leaves a Pix whose
+     * Student paid it all the same.
+     */
+    public void cancel(String code) {
+        jdbc.update("update orders set status = 'CANCELLED' where code = ?", code);
+    }
+
+    /** Leaves the Order as if its charge's id and QR code had never come back from Asaas. */
+    public void forgetCharge(String code) {
+        jdbc.update("""
+                update orders set asaas_payment_id = null, pix_qr_code_png = null, pix_copy_paste_code = null
+                where code = ?""", code);
     }
 
     private static String newCode() {

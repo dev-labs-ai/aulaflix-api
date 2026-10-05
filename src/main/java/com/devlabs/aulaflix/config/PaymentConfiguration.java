@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 
 import com.devlabs.aulaflix.service.AsaasGateway;
 import com.devlabs.aulaflix.service.CheckoutLimits;
+import com.devlabs.aulaflix.service.ReconciliationDelay;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({AsaasProperties.class, RateLimitProperties.class})
@@ -38,6 +39,11 @@ public class PaymentConfiguration {
                 .defaultHeader(HttpHeaders.USER_AGENT, USER_AGENT)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .build(), asaas.retryAfter());
+    }
+
+    @Bean
+    ReconciliationDelay reconciliationDelay(AsaasProperties asaas) {
+        return new ReconciliationDelay(asaas.reconciliationDelay());
     }
 
     @Bean

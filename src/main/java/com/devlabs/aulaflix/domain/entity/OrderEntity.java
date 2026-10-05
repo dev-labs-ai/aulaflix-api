@@ -1,6 +1,8 @@
 package com.devlabs.aulaflix.domain.entity;
 
 import java.time.Instant;
+import java.util.EnumSet;
+import java.util.Set;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -25,6 +27,10 @@ import com.devlabs.aulaflix.domain.PaymentMethod;
 @Entity
 @Table(name = "orders")
 public class OrderEntity {
+
+    /** The states a confirmed payment moves to {@code PAID}. */
+    private static final Set<OrderStatus> PAYABLE = EnumSet.of(OrderStatus.AWAITING_PAYMENT, OrderStatus.EXPIRED,
+            OrderStatus.CANCELLED);
 
     @Id
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_order")
@@ -74,6 +80,9 @@ public class OrderEntity {
     @Column(name = "duplicate_payment", nullable = false)
     private boolean duplicatePayment;
 
+    @Column(name = "charges_to_delete", nullable = false)
+    private boolean chargesToDelete;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -115,11 +124,37 @@ public class OrderEntity {
     }
 
     /**
-     * Paid at the moment given, if it awaited payment, and answers whether it was; an Order already paid keeps the
-     * moment it was paid first.
+     * Cancelled after a failed placement had asked Asaas for a charge, which may be there under the Order's code,
+     * whether or not Asaas answered: reconciliation deletes it. Any other state stays, since a payment wins.
+     */
+    public void cancelLeavingChargesToDelete() {
+        if (status == OrderStatus.AWAITING_PAYMENT) {
+            status = OrderStatus.CANCELLED;
+            chargesToDelete = true;
+        }
+    }
+
+    /** No charge of the cancelled Order is left at Asaas. */
+    public void chargesDeleted() {
+        chargesToDelete = false;
+    }
+
+    /** Expired while it awaited payment, and answers whether it was; any other state stays, since a payment wins. */
+    public boolean expire() {
+        if (status != OrderStatus.AWAITING_PAYMENT) {
+            return false;
+        }
+        status = OrderStatus.EXPIRED;
+        return true;
+    }
+
+    /**
+     * Paid at the moment given, if it awaited payment, expired or was cancelled, since a payment wins over either and
+     * money taken must be recorded for an Admin to refund it, and answers whether it was; an Order already paid keeps
+     * the moment it was paid first.
      */
     public boolean pay(Instant at) {
-        if (status != OrderStatus.AWAITING_PAYMENT) {
+        if (!PAYABLE.contains(status)) {
             return false;
         }
         status = OrderStatus.PAID;

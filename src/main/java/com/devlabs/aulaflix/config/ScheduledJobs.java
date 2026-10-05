@@ -8,6 +8,8 @@ import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 
 import com.devlabs.aulaflix.service.EmailOutbox;
+import com.devlabs.aulaflix.service.OrderExpiry;
+import com.devlabs.aulaflix.service.OrderReconciliation;
 import com.devlabs.aulaflix.service.WebhookWorker;
 
 /**
@@ -24,13 +26,17 @@ public class ScheduledJobs implements SchedulingConfigurer {
     private final EmailOutbox outbox;
     private final OutboxProperties outboxProperties;
     private final WebhookWorker webhookWorker;
+    private final OrderExpiry expiry;
+    private final OrderReconciliation reconciliation;
     private final AsaasProperties asaasProperties;
 
     public ScheduledJobs(EmailOutbox outbox, OutboxProperties outboxProperties, WebhookWorker webhookWorker,
-                         AsaasProperties asaasProperties) {
+                         OrderExpiry expiry, OrderReconciliation reconciliation, AsaasProperties asaasProperties) {
         this.outbox = outbox;
         this.outboxProperties = outboxProperties;
         this.webhookWorker = webhookWorker;
+        this.expiry = expiry;
+        this.reconciliation = reconciliation;
         this.asaasProperties = asaasProperties;
     }
 
@@ -38,5 +44,7 @@ public class ScheduledJobs implements SchedulingConfigurer {
     public void configureTasks(ScheduledTaskRegistrar jobs) {
         jobs.addFixedDelayTask(outbox::drain, outboxProperties.drainInterval());
         jobs.addFixedDelayTask(webhookWorker::processPending, asaasProperties.webhookInterval());
+        jobs.addFixedDelayTask(expiry::expireDue, asaasProperties.expiryInterval());
+        jobs.addFixedDelayTask(reconciliation::reconcile, asaasProperties.reconciliationInterval());
     }
 }

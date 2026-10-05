@@ -36,6 +36,7 @@ import com.devlabs.aulaflix.BffApi;
 import com.devlabs.aulaflix.Cpfs;
 import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.Mailpit;
+import com.devlabs.aulaflix.StoredOrders;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StoredWebhookEvents;
 import com.devlabs.aulaflix.StoredWebhookEvents.StoredWebhookEvent;
@@ -431,6 +432,25 @@ class AsaasWebhookTest extends IntegrationTest {
                          "instance": "/v1/admin/enrollments/%d/status"}""".formatted(enrollment));
         assertThat(enrollments.get(Long.toString(enrollment))).bodyJson().extractingPath("$.status")
                 .isEqualTo("ACTIVE");
+        assertThat(playback(lesson)).hasStatusOk();
+    }
+
+    /** Money taken is always recorded, so that an Admin can refund it: a payment wins over the cancellation too. */
+    @Test
+    void paysACancelledOrderWhoseChargeTheStudentPaidAllTheSame() {
+        long course = courses.onSale(newSlug());
+        long lesson = paidLessonOf(course);
+        String code = orders.placedPix(course, Cpfs.newCpf());
+        new StoredOrders(jdbc).cancel(code);
+
+        deliver("PAYMENT_CONFIRMED", chargeIs(code, "CONFIRMED"), code);
+        worker.processPending();
+
+        assertThat(orders.get(code)).bodyJson().isLenientlyEqualTo("""
+                {"status": "PAID", "duplicatePayment": false}""");
+        assertThat(enrollments.list("email=" + studentEmail)).bodyJson().isLenientlyEqualTo("""
+                {"items": [{"status": "ACTIVE", "origin": "ORDER", "orderCode": "%s"}], "totalItems": 1}"""
+                .formatted(code));
         assertThat(playback(lesson)).hasStatusOk();
     }
 
