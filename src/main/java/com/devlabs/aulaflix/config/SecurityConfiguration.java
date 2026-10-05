@@ -18,17 +18,22 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextHolderStrategy;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.AndRequestMatcher;
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
+import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.service.RateLimiter;
 import com.devlabs.aulaflix.service.SessionService;
 
@@ -67,8 +72,8 @@ public class SecurityConfiguration {
                 .addFilterBefore(new SessionTokenFilter(sessions, problems), AnonymousAuthenticationFilter.class)
                 .addFilterBefore(new BffRequestFilter(bffRequests(), bff.key(), limiter, limits.bffRequestLimit(),
                         resolver), SessionTokenFilter.class)
-                .addFilterAfter(new VisitorLimitFilter(PathPatternRequestMatcher.pathPattern(HttpMethod.GET, PLAYBACK),
-                        limiter, limits.visitorPlaybackLimit(), resolver), SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(visitorPlayback(), limiter, limits.visitorPlaybackLimit(),
+                        resolver), SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
@@ -88,6 +93,19 @@ public class SecurityConfiguration {
         Stream<String> adminPaths = Stream.concat(Stream.of(ADMIN), Arrays.stream(DOCUMENTATION));
         return new NegatedRequestMatcher(new OrRequestMatcher(
                 adminPaths.<RequestMatcher>map(PathPatternRequestMatcher::pathPattern).toList()));
+    }
+
+    /**
+     * Playback that comes without a session, whatever it answers; only the Free lesson plays without one. The session
+     * token is resolved by the time the limit asks.
+     */
+    private static RequestMatcher visitorPlayback() {
+        SecurityContextHolderStrategy contexts = SecurityContextHolder.getContextHolderStrategy();
+        RequestMatcher withoutASession = request -> {
+            Authentication authentication = contexts.getContext().getAuthentication();
+            return authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedAccount);
+        };
+        return new AndRequestMatcher(PathPatternRequestMatcher.pathPattern(HttpMethod.GET, PLAYBACK), withoutASession);
     }
 
     /** Hands the 401s and 403s of the filters to the {@code @RestControllerAdvice}, like any other refusal. */
