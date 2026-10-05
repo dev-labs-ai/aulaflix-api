@@ -24,12 +24,13 @@ import org.springframework.web.bind.annotation.RestController;
 import com.devlabs.aulaflix.config.OpenApiConfiguration;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.dto.WaitlistEntryRequest;
+import com.devlabs.aulaflix.dto.WaitlistUnsubscriptionRequest;
 import com.devlabs.aulaflix.service.WaitlistService;
 
 /**
  * A Coming soon Course's Waitlist: a Visitor joins by email, a Student in one click with the Account's email, under
- * the singleton {@code /v1/account}, so there is no entry id to authorize. Only Students leave; Visitors unsubscribe.
- * Admins never join. Course ids of any shape answer like unknown ones.
+ * the singleton {@code /v1/account}, so there is no entry id to authorize. Only Students leave one Waitlist; anyone
+ * holding a launch email's token unsubscribes its email from every Waitlist. Admins never join. Course ids of any shape answer like unknown ones.
  */
 @RestController
 @RequestMapping("/v1")
@@ -59,6 +60,21 @@ public class WaitlistController {
             description = "A Turnstile token, needed past 3 requests per IP in an hour")
     public ResponseEntity<Void> join(@Valid @RequestBody WaitlistEntryRequest request) {
         waitlists.joinAsVisitor(request.courseId(), request.email());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/waitlist-unsubscriptions")
+    @Operation(summary = "Unsubscribe an email from every Waitlist", description = """
+            Takes the email the launch email's token carries off every Waitlist. The web posts the token from the \
+            page of the email's link, which asks first, and from the one-click `List-Unsubscribe` URL, which only a \
+            mail client posts to. The answer is alike whether the email was on any Waitlist. The token never \
+            expires. Joining again later is fresh consent.""")
+    @ApiResponse(responseCode = "204", description = "The email is on no Waitlist")
+    @ApiResponse(responseCode = "400", description = """
+            `invalid-unsubscribe-link`: the token is not one the API made, or it was changed; or \
+            `invalid-request` with `errors`""")
+    public ResponseEntity<Void> unsubscribe(@Valid @RequestBody WaitlistUnsubscriptionRequest request) {
+        waitlists.unsubscribe(request.token());
         return ResponseEntity.noContent().build();
     }
 

@@ -303,6 +303,12 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "Only a Coming soon Course takes Waitlist entries."), request);
     }
 
+    @ExceptionHandler(InvalidUnsubscribeLinkException.class)
+    ResponseEntity<Object> invalidUnsubscribeLink(HttpServletRequest request) {
+        return refuse(new Refusal(HttpStatus.BAD_REQUEST, "invalid-unsubscribe-link", "Invalid unsubscribe link",
+                "The link is not one AulaFlix sent, or it was changed: open it again from the email."), request);
+    }
+
     @ExceptionHandler(NotOnWaitlistException.class)
     ResponseEntity<Object> notOnWaitlist(HttpServletRequest request) {
         return refuse(new Refusal(HttpStatus.NOT_FOUND, "not-on-waitlist", "Not on the Waitlist",

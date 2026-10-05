@@ -33,6 +33,27 @@ public interface WaitlistEntryRepository extends JpaRepository<WaitlistEntryEnti
 
     long countByCourseId(long courseId);
 
+    /**
+     * The emails on the Course's Waitlist, but those of Students with an active Enrollment in it, all in one query.
+     * Entries have no Account link, so a Student is matched by the Account's email, which is stored normalized too.
+     */
+    @Query("""
+            select w.email from WaitlistEntryEntity w
+            where w.course.id = :courseId
+              and not exists (select e.id from EnrollmentEntity e
+                              where e.course.id = :courseId and e.endedAt is null and e.student.email = w.email)
+            order by w.id""")
+    List<String> findEmailsToNotifyOfLaunch(@Param("courseId") long courseId);
+
+    @Modifying
+    @Query("delete from WaitlistEntryEntity w where w.course.id = :courseId")
+    int deleteByCourseId(@Param("courseId") long courseId);
+
+    /** Takes the email off every Waitlist at once. */
+    @Modifying
+    @Query("delete from WaitlistEntryEntity w where w.email = :email")
+    int deleteByEmail(@Param("email") String email);
+
     /** How many entries each Course has, all in one query; a Course without any is left out. */
     @Query("select w.course.id as courseId, count(w) as entries from WaitlistEntryEntity w group by w.course.id")
     List<WaitlistCount> countByCourse();

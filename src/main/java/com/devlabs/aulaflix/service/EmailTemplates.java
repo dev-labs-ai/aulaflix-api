@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import com.devlabs.aulaflix.domain.entity.EmailTemplate;
+import com.devlabs.aulaflix.dto.CoursePricing;
 import com.devlabs.aulaflix.domain.entity.VerificationCodeKind;
 
 /**
@@ -115,6 +116,41 @@ public class EmailTemplates {
 
                 Equipe AulaFlix
                 """.formatted(name, orderCode, reais(amountCents), courseTitle, orderCode, orderCode), Map.of());
+    }
+
+    /**
+     * The launch email to someone on the Course's Waitlist, who may have no Account, so it greets no one by name. Its
+     * mail client unsubscribes in one click with a {@code POST} to the {@code List-Unsubscribe} URL (RFC 8058), which a
+     * mail scanner never sends; the body's link opens a page that asks first. Both carry the same token.
+     */
+    public OutboundEmail waitlistLaunch(String recipient, String courseTitle, String courseSummary, String courseSlug,
+                                        CoursePricing pricing, String unsubscribeToken) {
+        return new OutboundEmail(EmailTemplate.WAITLIST_LAUNCH, recipient,
+                "Lançamento: %s já está à venda".formatted(courseTitle), """
+                Olá!
+
+                O curso %s, que você estava esperando, acaba de ser lançado na AulaFlix.
+
+                %s
+
+                Sai por %s no cartão, em até %dx de %s sem juros, ou %s no Pix.
+
+                Para conhecer o curso e comprar, abra:
+
+                %s/cursos/%s
+
+                Você recebeu este email porque entrou na lista de espera deste curso. Para sair de todas as listas \
+                de espera da AulaFlix, abra:
+
+                %s/cancelar-aviso#%s
+
+                Equipe AulaFlix
+                """.formatted(courseTitle, courseSummary, reais(pricing.priceCents()), pricing.maxInstallments(),
+                reais(pricing.installmentCents()), reais(pricing.pixPriceCents()), webBase, courseSlug, webBase,
+                unsubscribeToken),
+                Map.of("List-Unsubscribe", "<%s/api/waitlist/unsubscribe?token=%s>".formatted(webBase,
+                                unsubscribeToken),
+                        "List-Unsubscribe-Post", "List-Unsubscribe=One-Click"));
     }
 
     /** As Brazil writes money: {@code R$ 1.497,30}. */

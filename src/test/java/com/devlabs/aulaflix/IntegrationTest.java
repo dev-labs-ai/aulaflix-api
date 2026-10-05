@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
  */
 @SpringBootTest(properties = {"springdoc.cache.disabled=true", "aulaflix.bff.key=" + BffApi.KEY,
         "aulaflix.codes.hmac-key=" + IntegrationTest.CODES_HMAC_KEY,
+        "aulaflix.waitlist.unsubscribe-key=" + IntegrationTest.UNSUBSCRIBE_KEY,
         "aulaflix.password-reset.code-request-time=100ms",
         "aulaflix.scheduling.enabled=false", "aulaflix.outbox.send-rate.emails=1000",
         "aulaflix.soft-limits.look-ups-and-sign-ins.global.requests=" + IntegrationTest.OUT_OF_REACH,
@@ -31,6 +32,9 @@ public abstract class IntegrationTest {
 
     /** The key the tests' application signs its 6-digit codes with. */
     public static final String CODES_HMAC_KEY = "codes-hmac-key-of-the-tests-0123456789abc";
+
+    /** The AES-256 key, in base64, that the tests' application seals its unsubscribe tokens under. */
+    public static final String UNSUBSCRIBE_KEY = "dW5zdWJzY3JpYmUta2V5LW9mLXRoZS10ZXN0cy0wMTI=";
 
     /** A limit no run of the suite reaches. */
     public static final int OUT_OF_REACH = 1_000_000;

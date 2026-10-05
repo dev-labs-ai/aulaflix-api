@@ -11,5 +11,7 @@ public enum EmailTemplate {
     /** The Student's record that an Order was paid and its Course opened. */
     PURCHASE_CONFIRMATION,
     /** Every Admin's alert that an Order was a Duplicate payment, to refund by hand. */
-    DUPLICATE_PAYMENT_ALERT
+    DUPLICATE_PAYMENT_ALERT,
+    /** The news, to someone on a Waitlist, that its Course went On sale, with one-click unsubscribe. */
+    WAITLIST_LAUNCH
 }
