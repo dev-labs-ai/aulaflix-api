@@ -262,6 +262,99 @@ The Course now shows at `http://localhost:3001/cursos/git-do-zero`, with its pri
 which plays. When the API refuses the file, `curl -sf` hides why: drop the `f` to see the `ProblemDetail`, fix the
 file and `PUT` it again. `docker compose --profile full down -v` throws the rehearsal away, volumes included.
 
+## Deploying to production
+
+Production is one VPS (ADR 0003), and each repository deploys its own image, so a web change never redeploys the API.
+This repository carries:
+
+- `deploy/compose.yaml`: the API, PostgreSQL, the storage and `storage-init`. PostgreSQL lives only on
+  `aulaflix-data`, which is `internal: true`; the API and the storage also join `edge-aulaflix`, the external network
+  the web and the edge share. The only published port is the API's, on the VPS's `127.0.0.1:8080`, for the SSH tunnel.
+- `src/main/resources/application-production.properties`: every non-secret production setting, inside the image, turned
+  on by `SPRING_PROFILES_ACTIVE=production` in the Compose file.
+- `deploy/.env.example`: the image tag, and the list of secret files.
+- `deploy/nginx/`: the AulaFlix server blocks for `vps-edge`, and the njs key that counts media connections per IPv4
+  address or IPv6 /64. `EdgeServerBlocksTest` runs them in the nginx image, with `nginx -t` among its checks.
+- `.github/workflows/deploy.yml`: on every push to `main`, the tests, then the image, pushed to GHCR under the commit's
+  SHA, then `docker compose pull api && docker compose up -d api` over SSH.
+
+### Setting up the VPS, once
+
+```shell
+# The repository, for deploy/ and storage/ (the API itself comes from GHCR), and the network the edge and web share
+sudo install -d -o deploy -g deploy /srv/aulaflix
+git clone https://github.com/dev-labs-ai/aulaflix-api.git /srv/aulaflix/aulaflix-api
+docker network create --ipv6 edge-aulaflix
+docker login ghcr.io       # with a GitHub token that has read:packages only, since the image is private
+
+# The secrets: mode 600, in a directory only root enters. Paste each value given by a provider, then Ctrl-D
+sudo install -d -m 700 /srv/aulaflix/secrets
+sudo sh -c 'cd /srv/aulaflix/secrets && umask 077
+    openssl rand -base64 24 > spring.datasource.password
+    openssl rand -base64 32 > aulaflix.bff.key
+    openssl rand -hex 10 > storage.root-user
+    openssl rand -hex 24 > storage.root-password
+    for key in read-only read-write; do
+        openssl rand -hex 10 > aulaflix.storage.$key.access-key-id
+        openssl rand -hex 20 > aulaflix.storage.$key.secret-access-key
+    done
+    openssl rand -base64 32 > aulaflix.codes.hmac-key
+    openssl rand -base64 32 > aulaflix.waitlist.unsubscribe-key'
+for name in aulaflix.asaas.api-key aulaflix.asaas.webhook-token spring.mail.username spring.mail.password \
+        aulaflix.turnstile.secret-key minio.license; do
+    sudo sh -c "umask 077; cat > /srv/aulaflix/secrets/$name"
+done
+# The API's image runs as uid 10001, and Compose mounts each file with its owner and mode, so the files the API reads
+# become 10001's, still mode 600. The rest stay root's, read only by the root-run storage and storage-init.
+sudo sh -c 'cd /srv/aulaflix/secrets && chown 10001:10001 $(ls | grep -v -x -e minio.license -e storage.root-user \
+    -e storage.root-password)'
+
+cd /srv/aulaflix/aulaflix-api/deploy
+cp .env.example .env       # then set AULAFLIX_API_TAG to a commit GitHub Actions has pushed
+docker compose up -d
+docker compose run --rm api admin create --email you@example.com --name "Your Name"
+```
+
+`deploy/.env.example` lists every secret file, who reads it and what it holds. The unsubscribe key must survive every
+redeploy: a new one breaks the links in emails already sent. If the web runs as a user other than root or 10001, give
+`aulaflix.bff.key`, which its Compose file mounts too, the web's group and mode 640.
+
+In GitHub, the repository secret `MINIO_LICENSE` holds the license for the tests, and the `production` environment
+holds the deploy's SSH access: `VPS_HOST`, `VPS_USER` (in the `docker` group, owning `deploy/.env`), `VPS_SSH_KEY` (a
+key for this workflow alone) and `VPS_KNOWN_HOSTS` (`ssh-keyscan` of the VPS, checked before anything is sent).
+
+### Every deploy, and what it leaves alone
+
+The workflow rewrites `AULAFLIX_API_TAG` in `deploy/.env`, pulls that image and recreates the API container alone:
+PostgreSQL and the storage keep running, and `storage-init` runs again, which changes nothing. The API is one
+container, so a deploy brings seconds of downtime.
+
+The workflow never touches the clone. When `deploy/` or `storage/` change, pull them and apply them by hand:
+
+```shell
+cd /srv/aulaflix/aulaflix-api && git pull --ff-only && cd deploy && docker compose up -d
+```
+
+The owner reaches PostgreSQL with `docker compose exec postgres psql -U aulaflix`, the storage with `mc` in
+`docker compose run --rm --entrypoint sh storage-init` (setting its alias as `storage/init.sh` does), and the Admin
+endpoints and Swagger UI through `ssh -L 8080:127.0.0.1:8080`.
+
+### The edge
+
+`vps-edge` includes `deploy/nginx/aulaflix.conf` in its `http` block, mounts `aulaflix-media.js` at
+`/etc/nginx/njs/`, loads `ngx_http_js_module` in its main context, joins `edge-aulaflix`, and serves certbot's
+webroot from `/var/www/certbot` with one certificate for the four names at `/etc/letsencrypt/live/aulaflix.com.br/`.
+
+- `aulaflix.com.br` sends every path to `web:3000`; `www` answers 301 to it.
+- `media.aulaflix.com.br` passes only `GET`, `HEAD` and `PUT` under `/videos/` to `storage:9000`, with the `Host` the
+  URL was signed for. A `GET` or `HEAD` counts against 6 connections per client and slows to 1 MB/s after its first
+  4 MB; an upload, up to 5 GiB, streams through unlimited. The access log keeps the path without the presigned query.
+- `api.aulaflix.com.br` passes only `POST /v1/webhooks/asaas`, from Asaas's four production IPs, with a 256 KB body
+  limit, and blanks `AulaFlix-BFF-Key` and `AulaFlix-Client-IP`. Register the webhook in Asaas at
+  `https://api.aulaflix.com.br/v1/webhooks/asaas`.
+- Port 80 answers the ACME challenge on every name and sends the rest to HTTPS; on `api`, the rest gets a 404. Every
+  proxied request carries `X-Forwarded-For $remote_addr`, and every HTTPS answer HSTS, without `includeSubDomains`.
+
 ## Tests
 
 `./mvnw test` needs Docker: PostgreSQL and AIStor Free run in Testcontainers, AIStor with the license from
