@@ -60,7 +60,8 @@ class OrderPlacements {
      * Pix price, and a Student without an Asaas customer must send a valid CPF for it, which is checked here and kept
      * only in the answer; it is checked before the one awaiting by card is answered too, so that a switch the CPF
      * would refuse cancels nothing. A card Order is at the Course's current price, and asks for no CPF: the Student
-     * gives Asaas their details on its page.
+     * gives Asaas their details on its page. One awaiting payment past its {@code expiresAt} is answered as lapsed,
+     * for the expiry to settle before anything else, since its QR code or Checkout is dead.
      */
     @Transactional
     Placement open(long studentId, long courseId, PaymentMethod method, String cpf) {
@@ -73,6 +74,11 @@ class OrderPlacements {
         }
         Optional<OrderEntity> awaiting =
                 orders.findByStudentAndCourseInStatus(studentId, courseId, OrderStatus.AWAITING_PAYMENT);
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        if (awaiting.isPresent() && !awaiting.get().getExpiresAt().isAfter(now)) {
+            return new Placement.Lapsed(OrderUpkeep.DueOrder.of(awaiting.get()),
+                    OrderViews.withPayment(awaiting.get()));
+        }
         String customerId = student.getAsaasCustomerId();
         boolean needsCpf = method == PaymentMethod.PIX && customerId == null;
         if (awaiting.isPresent()) {
@@ -81,7 +87,6 @@ class OrderPlacements {
             }
             return new Placement.Awaiting(OrderViews.withPayment(awaiting.get()));
         }
-        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         CoursePricing pricing = Pricing.of(course);
         if (method == PaymentMethod.CARD) {
             OrderEntity order = orders.save(OrderEntity.card(OrderCodes.next(), student, course,
@@ -157,7 +162,20 @@ class OrderPlacements {
         }
 
         /** The Order that already awaited payment, as its Student sees it. */
-        record Awaiting(Order order) implements Placement {
+        record Awaiting(Order order) implements Existing {
+        }
+
+        /**
+         * The Order that already awaited payment, past its {@code expiresAt}, which the expiry job has yet to see: it
+         * stays so only while Asaas holds its card for risk analysis.
+         */
+        record Lapsed(OrderUpkeep.DueOrder due, Order order) implements Existing {
+        }
+
+        /** An Order that already awaited payment, as its Student sees it. */
+        sealed interface Existing extends Placement {
+
+            Order order();
         }
 
         /** Who pays a Pix at Asaas: the Student's customer there, or the one their first Pix makes. */

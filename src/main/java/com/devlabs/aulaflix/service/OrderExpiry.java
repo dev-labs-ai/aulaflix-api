@@ -44,18 +44,29 @@ public class OrderExpiry {
     public void expireDue() {
         for (OrderUpkeep.DueOrder due : upkeep.expiredBy(clock.instant())) {
             try {
-                if (!leftToExpire(due)) {
-                    continue;
-                }
+                expire(due);
             } catch (AsaasUnavailableException failure) {
                 log.warn("Left Order {} and the rest to expire on the next run: {}", due.code(),
                         failure.getMessage());
                 return;
-            } catch (AsaasRefusedException refusal) {
-                log.error("Expiring Order {} without its charge: {}", due.code(), refusal.getMessage());
             }
-            upkeep.expire(due);
         }
+    }
+
+    /**
+     * Expires the one Order due, as a run of the job does, now that a placement found it awaiting payment past its
+     * {@code expiresAt}: a payment the re-read finds wins, and a card held for risk analysis stays awaiting. Throws
+     * when Asaas cannot be reached, which leaves the Order as it was.
+     */
+    void expire(OrderUpkeep.DueOrder due) {
+        try {
+            if (!leftToExpire(due)) {
+                return;
+            }
+        } catch (AsaasRefusedException refusal) {
+            log.error("Expiring Order {} without its charge: {}", due.code(), refusal.getMessage());
+        }
+        upkeep.expire(due);
     }
 
     /**

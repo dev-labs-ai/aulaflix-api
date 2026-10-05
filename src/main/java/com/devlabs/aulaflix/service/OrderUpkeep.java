@@ -35,19 +35,19 @@ class OrderUpkeep {
     /** The Orders still awaiting payment that expired by the moment given, the earliest due first. */
     @Transactional(readOnly = true)
     List<DueOrder> expiredBy(Instant now) {
-        return orders.findAwaitingExpiredBy(now).stream().map(OrderUpkeep::due).toList();
+        return orders.findAwaitingExpiredBy(now).stream().map(DueOrder::of).toList();
     }
 
     /** The Orders with a charge that have awaited payment since the moment given or before, the oldest first. */
     @Transactional(readOnly = true)
     List<DueOrder> awaitingSince(Instant before) {
-        return orders.findAwaitingWithChargePlacedBy(before).stream().map(OrderUpkeep::due).toList();
+        return orders.findAwaitingWithChargePlacedBy(before).stream().map(DueOrder::of).toList();
     }
 
     /** The paid Orders whose charge was last re-read, or, never re-read, paid, by the moment given. */
     @Transactional(readOnly = true)
     List<DueOrder> paidUncheckedSince(Instant before) {
-        return orders.findPaidUncheckedSince(before).stream().map(OrderUpkeep::due).toList();
+        return orders.findPaidUncheckedSince(before).stream().map(DueOrder::of).toList();
     }
 
     /** Records that reconciliation re-read the paid Order's charge at the moment given. */
@@ -59,7 +59,7 @@ class OrderUpkeep {
     /** The cancelled Orders placed by the moment given that may have charges left at Asaas, the oldest first. */
     @Transactional(readOnly = true)
     List<DueOrder> withChargesToDeleteSince(Instant before) {
-        return orders.findWithChargesToDeletePlacedBy(before).stream().map(OrderUpkeep::due).toList();
+        return orders.findWithChargesToDeletePlacedBy(before).stream().map(DueOrder::of).toList();
     }
 
     /** The card Order still awaiting payment on the Checkout, if any. */
@@ -67,7 +67,7 @@ class OrderUpkeep {
     Optional<DueOrder> awaitingOnCheckout(String checkoutId) {
         return orders.findWithPartiesByCheckoutId(checkoutId)
                 .filter(order -> order.getStatus() == OrderStatus.AWAITING_PAYMENT)
-                .map(OrderUpkeep::due);
+                .map(DueOrder::of);
     }
 
     /** Expires the Order, unless something, a payment above all, moved it on meanwhile. */
@@ -79,15 +79,15 @@ class OrderUpkeep {
         }
     }
 
-    private static DueOrder due(OrderEntity order) {
-        return new DueOrder(order.getId(), order.getCode(), order.getStudent().getId(), order.getAsaasPaymentId(),
-                order.getAsaasCheckoutId());
-    }
-
     /**
      * An Order a job has to look at: its Student's id; its charge's, which is null until Asaas gave one, and for a card
      * until it is paid; and a card Order's Checkout's, null until Asaas gave one.
      */
     record DueOrder(long id, String code, long studentId, String chargeId, String checkoutId) {
+
+        static DueOrder of(OrderEntity order) {
+            return new DueOrder(order.getId(), order.getCode(), order.getStudent().getId(), order.getAsaasPaymentId(),
+                    order.getAsaasCheckoutId());
+        }
     }
 }

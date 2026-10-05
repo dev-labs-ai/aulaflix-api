@@ -44,6 +44,7 @@ public class OrderService {
 
     private final OrderPlacements placements;
     private final OrderCancellations cancellations;
+    private final OrderExpiry expiry;
     private final OrderRepository repository;
     private final AsaasGateway asaas;
     private final RateLimiter limiter;
@@ -51,11 +52,12 @@ public class OrderService {
     private final CheckoutReturns returns;
     private final Clock clock;
 
-    public OrderService(OrderPlacements placements, OrderCancellations cancellations, OrderRepository repository,
-                        AsaasGateway asaas, RateLimiter limiter, CheckoutLimits limits, CheckoutReturns returns,
-                        Clock clock) {
+    public OrderService(OrderPlacements placements, OrderCancellations cancellations, OrderExpiry expiry,
+                        OrderRepository repository, AsaasGateway asaas, RateLimiter limiter, CheckoutLimits limits,
+                        CheckoutReturns returns, Clock clock) {
         this.placements = placements;
         this.cancellations = cancellations;
+        this.expiry = expiry;
         this.repository = repository;
         this.asaas = asaas;
         this.limiter = limiter;
@@ -74,18 +76,37 @@ public class OrderService {
     public PlacedOrder place(long studentId, OrderRequest request) {
         limiter.consume(limits.perStudent(), RateLimitKey.student(studentId));
         limiter.consume(limits.everyone(), RateLimitKey.everyone());
-        OrderPlacements.Placement placement = placements.open(studentId, request.courseId(), request.method(),
-                request.cpf());
-        if (placement instanceof OrderPlacements.Placement.Awaiting awaiting
-                && awaiting.order().method() != request.method()) {
-            cancellations.replace(studentId, awaiting.order().code());
+        OrderPlacements.Placement placement = openExpiringALapsedOrder(studentId, request);
+        if (placement instanceof OrderPlacements.Placement.Existing existing
+                && existing.order().method() != request.method()) {
+            cancellations.replace(studentId, existing.order().code());
             placement = placements.open(studentId, request.courseId(), request.method(), request.cpf());
         }
         return switch (placement) {
-            case OrderPlacements.Placement.Awaiting awaiting -> new PlacedOrder(awaiting.order(), false);
+            case OrderPlacements.Placement.Existing existing -> new PlacedOrder(existing.order(), false);
             case OrderPlacements.Placement.NewCard card -> new PlacedOrder(checkout(card), true);
             case OrderPlacements.Placement.NewPix pix -> new PlacedOrder(charge(studentId, pix), true);
         };
+    }
+
+    /**
+     * Opens the placement; an Order found awaiting payment past its {@code expiresAt} expires first, as the job would
+     * have, and the placement opens again. That Order is answered after all only when it stays awaiting: Asaas holds
+     * its card for risk analysis. When Asaas cannot be reached, the Order stays as it was, and nothing is placed.
+     */
+    private OrderPlacements.Placement openExpiringALapsedOrder(long studentId, OrderRequest request) {
+        OrderPlacements.Placement placement = placements.open(studentId, request.courseId(), request.method(),
+                request.cpf());
+        if (!(placement instanceof OrderPlacements.Placement.Lapsed lapsed)) {
+            return placement;
+        }
+        try {
+            expiry.expire(lapsed.due());
+        } catch (AsaasUnavailableException failure) {
+            throw new PaymentUnavailableException("Order %s left awaiting payment; %s".formatted(
+                    lapsed.order().code(), failure.getMessage()), failure.retryAfter());
+        }
+        return placements.open(studentId, request.courseId(), request.method(), request.cpf());
     }
 
     /**

@@ -400,8 +400,10 @@ admin mode. The expiry job (`aulaflix.asaas.expiry-interval`, 1 min) takes every
 `expiresAt`, 30 minutes after a Pix was placed, and re-reads its charge first: a paid charge wins, and the Order is
 paid as by the webhook, Enrollment and email included, or a Duplicate payment and its alert. Otherwise the charge is
 deleted at Asaas, and only then is the Order `EXPIRED`; it leaves the Student's list, nothing is emailed, and the
-Student's next Pix is a new Order with a new QR code. A payment Asaas confirms after the expiry still wins: the webhook
-pays an `EXPIRED` Order too.
+Student's next Pix is a new Order with a new QR code. A placement that finds the Order awaiting payment past its
+`expiresAt` before the job came does the same at once, then places the new one: it never answers a dead QR code or
+Checkout. When Asaas cannot be reached then, the answer is 503 `payment-unavailable` and nothing changes. A payment
+Asaas confirms after the expiry still wins: the webhook pays an `EXPIRED` Order too.
 
 Reconciliation (`aulaflix.asaas.reconciliation-interval`, 2 min) catches lost webhooks: it re-reads the charge of every
 Order that has awaited payment longer than `aulaflix.asaas.reconciliation-delay` (5 min) and applies what it shows,

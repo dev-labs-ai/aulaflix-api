@@ -154,6 +154,59 @@ class PixOrderExpiryTest extends IntegrationTest {
                 .isEqualTo(Asaas.copyPasteCodeOf(Asaas.chargeOf(code)));
     }
 
+    /**
+     * The job runs once a minute: an Order past its 30 minutes is not answered again in the meantime, as its QR code is
+     * dead. It expires there and then, its charge deleted, and the Student gets a new one in the same click.
+     */
+    @Test
+    void expiresAPixPastItsThirtyMinutesWhenTheStudentPlacesAgainBeforeTheJobRuns() {
+        String expired = orders.placedPix(course, Cpfs.newCpf());
+        String charge = chargeIs(expired, "PENDING");
+        clock.set(clock.instant().plus(PIX_LIFETIME));
+
+        MvcTestResult placed = orders.placePix(course, null);
+
+        assertThat(placed).hasStatus(HttpStatus.CREATED);
+        String code = StudentOrders.codeOf(placed);
+        assertThat(code).isNotEqualTo(expired);
+        assertThat(placed).bodyJson().extractingPath("$.pix.copyPasteCode")
+                .isEqualTo(Asaas.copyPasteCodeOf(Asaas.chargeOf(code)));
+        assertThat(orders.get(expired)).bodyJson().extractingPath("$.status").isEqualTo("EXPIRED");
+        assertThat(asaas.deletionsOf(charge)).isOne();
+    }
+
+    /** Expiring it on the placement re-reads the charge first, like the job: a payment wins, and nothing new is placed. */
+    @Test
+    void paysAPixPastItsThirtyMinutesThatAsaasShowsPaidWhenTheStudentPlacesAgain() {
+        String cpf = Cpfs.newCpf();
+        String code = orders.placedPix(course, cpf);
+        String charge = chargeIs(code, "RECEIVED");
+        clock.set(clock.instant().plus(PIX_LIFETIME));
+
+        MvcTestResult placed = orders.placePix(course, null);
+
+        assertThat(placed).hasStatus(HttpStatus.CONFLICT).bodyJson().extractingPath("$.type")
+                .isEqualTo("https://aulaflix.com.br/problems/already-enrolled");
+        assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("PAID");
+        assertThat(asaas.deletionsOf(charge)).isZero();
+        assertThat(asaas.chargesCreatedFor(Asaas.customerOf(cpf))).hasSize(1);
+    }
+
+    @Test
+    void leavesAPixPastItsThirtyMinutesAwaitingPaymentWhenAsaasCannotBeReachedToExpireIt() {
+        String code = orders.placedPix(course, Cpfs.newCpf());
+        String charge = chargeIs(code, "PENDING");
+        asaas.answerNextChargeReadWith(charge, Asaas.tooLate());
+        clock.set(clock.instant().plus(PIX_LIFETIME));
+
+        MvcTestResult placed = orders.placePix(course, null);
+
+        assertThat(placed).hasStatus(HttpStatus.SERVICE_UNAVAILABLE).bodyJson().extractingPath("$.type")
+                .isEqualTo("https://aulaflix.com.br/problems/payment-unavailable");
+        assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
+        assertThat(asaas.deletionsOf(charge)).isZero();
+    }
+
     /** The webhook was lost, or has yet to arrive: the re-read finds the payment, which wins. */
     @Test
     void paysAnOrderWhoseChargeAsaasShowsPaidAndGrantsItsEnrollment() {

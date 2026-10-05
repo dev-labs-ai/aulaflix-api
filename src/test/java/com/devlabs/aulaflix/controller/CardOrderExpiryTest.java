@@ -184,6 +184,40 @@ class CardOrderExpiryTest extends IntegrationTest {
         assertThat(orders.get(code)).bodyJson().extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
     }
 
+    /**
+     * The job runs once a minute: a card Order past its 60 minutes is not answered again in the meantime, as its
+     * Checkout is gone. It expires there and then, and the Student gets a new Checkout in the same click.
+     */
+    @Test
+    void expiresACardOrderPastItsSixtyMinutesWhenTheStudentPlacesAgainBeforeTheJobRuns() {
+        String expired = orders.placedCard(course);
+        clock.set(clock.instant().plus(CARD_LIFETIME));
+
+        MvcTestResult placed = orders.placeCard(course);
+
+        assertThat(placed).hasStatus(HttpStatus.CREATED);
+        String code = StudentOrders.codeOf(placed);
+        assertThat(code).isNotEqualTo(expired);
+        assertThat(placed).bodyJson().extractingPath("$.checkout.url").isEqualTo(Asaas.checkoutLinkOf(code));
+        assertThat(orders.get(expired)).bodyJson().extractingPath("$.status").isEqualTo("EXPIRED");
+        assertThat(asaas.searchesOfCheckout(Asaas.checkoutOf(expired))).isOne();
+    }
+
+    /** As with the job, a card Asaas holds for risk analysis keeps its Order, which is answered again. */
+    @Test
+    void answersACardOrderHeldForRiskAnalysisPastItsSixtyMinutesWhenTheStudentPlacesAgain() {
+        String code = orders.placedCard(course);
+        asaas.cardSale(code, "AWAITING_RISK_ANALYSIS", 1, PRICE_CENTS, null);
+        clock.set(clock.instant().plus(CARD_LIFETIME));
+
+        MvcTestResult placed = orders.placeCard(course);
+
+        assertThat(placed).hasStatusOk().bodyJson().satisfies(order -> {
+            assertThat(order).extractingPath("$.code").isEqualTo(code);
+            assertThat(order).extractingPath("$.status").isEqualTo("AWAITING_PAYMENT");
+        });
+    }
+
     /** The Student paid as the Order expired: the payment still wins. */
     @Test
     void paysAnExpiredCardOrderWhosePaymentAsaasConfirmsAfterwards() {
