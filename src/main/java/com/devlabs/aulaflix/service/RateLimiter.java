@@ -3,6 +3,7 @@ package com.devlabs.aulaflix.service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
@@ -17,9 +18,9 @@ import io.github.bucket4j.distributed.ExpirationAfterWriteStrategy;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 
 /**
- * Hard limits, counted per operation and key in memory, so a restart forgets them. A key's window opens with its first
- * request, and time is the application's {@link Clock}. A refusal says whether it is the first of its window, the
- * one worth logging.
+ * Limits, counted per operation and key in memory, so a restart forgets them. A key's window opens with its first
+ * request, and time is the application's {@link Clock}. A request past a limit says whether it is the first of its
+ * window, the one worth logging.
  */
 @Service
 public class RateLimiter {
@@ -41,13 +42,24 @@ public class RateLimiter {
 
     /** Counts one request of the operation for the key, or refuses it once the window's requests are used up. */
     public void consume(RateLimit limit, RateLimitKey key) {
+        count(limit, key).ifPresent(overrun -> {
+            throw new RateLimitedException("Hard limit on %s reached by %s".formatted(limit.operation(), key),
+                    overrun.untilWindowEnds(), overrun.firstOfItsWindow());
+        });
+    }
+
+    /**
+     * Counts one request of the operation for the key, and tells nothing while the window has requests left; past
+     * them, it tells how long until the window ends, and whether no other request went past it in that window.
+     */
+    Optional<Overrun> count(RateLimit limit, RateLimitKey key) {
         CounterId counter = new CounterId(limit.operation(), key);
         ConsumptionProbe probe = counters.getProxy(counter, () -> configuration(limit)).tryConsumeAndReturnRemaining(1);
-        if (!probe.isConsumed()) {
-            Duration wait = Duration.ofNanos(probe.getNanosToWaitForRefill());
-            throw new RateLimitedException("Hard limit on %s reached by %s".formatted(limit.operation(), key), wait,
-                    firstRefusalOfItsWindow(counter, wait));
+        if (probe.isConsumed()) {
+            return Optional.empty();
         }
+        Duration wait = Duration.ofNanos(probe.getNanosToWaitForRefill());
+        return Optional.of(new Overrun(wait, firstRefusalOfItsWindow(counter, wait)));
     }
 
     /** Whether no other request was refused in the counter's current window, which ends after the wait. */
@@ -64,6 +76,10 @@ public class RateLimiter {
                 .addLimit(bandwidth -> bandwidth.capacity(limit.requests())
                         .refillIntervally(limit.requests(), limit.window()))
                 .build();
+    }
+
+    /** A request past its limit: how long until the window ends, and whether it is the first past it in the window. */
+    record Overrun(Duration untilWindowEnds, boolean firstOfItsWindow) {
     }
 
     /** What a counter counts: one operation for one key. */

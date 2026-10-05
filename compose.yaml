@@ -95,6 +95,7 @@ services:
       - aulaflix.storage.read-write.secret-access-key
       - aulaflix.asaas.api-key
       - aulaflix.asaas.webhook-token
+      - aulaflix.turnstile.secret-key
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -161,6 +162,8 @@ secrets:
     file: ./secrets/aulaflix.asaas.api-key
   aulaflix.asaas.webhook-token:
     file: ./secrets/aulaflix.asaas.webhook-token
+  aulaflix.turnstile.secret-key:
+    file: ./secrets/aulaflix.turnstile.secret-key
 
 volumes:
   postgres-data:

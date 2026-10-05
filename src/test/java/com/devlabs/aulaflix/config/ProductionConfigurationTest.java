@@ -62,6 +62,16 @@ class ProductionConfigurationTest {
     }
 
     @Test
+    void verifiesCaptchasAtCloudflareWithinThreeSeconds() {
+        production.run(context -> {
+            ConfigurableEnvironment environment = context.getEnvironment();
+            assertThat(environment.getProperty("aulaflix.turnstile.base-url"))
+                    .isEqualTo("https://challenges.cloudflare.com/turnstile/v0");
+            assertThat(environment.getProperty("aulaflix.turnstile.timeout")).isEqualTo("3s");
+        });
+    }
+
+    @Test
     void sendsThroughSesOnPort587WithStartTlsRequired() {
         production.run(context -> {
             ConfigurableEnvironment environment = context.getEnvironment();

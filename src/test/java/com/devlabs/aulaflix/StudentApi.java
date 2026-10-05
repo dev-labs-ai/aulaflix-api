@@ -110,6 +110,20 @@ public final class StudentApi {
                 .exchange();
     }
 
+    public MvcTestResult requestChangeCode(String token) {
+        return bff.post("/v1/account/password-change-codes")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .exchange();
+    }
+
+    public MvcTestResult changePassword(String token, String code, String newPassword) {
+        return bff.put("/v1/account/password")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("code", code, "newPassword", newPassword)))
+                .exchange();
+    }
+
     private static String json(Map<String, String> fields) {
         return JsonMapper.shared().writeValueAsString(fields);
     }

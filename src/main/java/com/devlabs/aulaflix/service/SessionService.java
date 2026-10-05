@@ -67,6 +67,12 @@ public class SessionService {
         return repository.deleteByAccountId(account.getId());
     }
 
+    /** Ends every session of the Account but the one kept, and answers how many ended. */
+    @Transactional
+    public int endAllBut(AccountEntity account, long keptSessionId) {
+        return repository.deleteByAccountIdExcept(account.getId(), keptSessionId);
+    }
+
     private static boolean isAlive(SessionEntity session, Instant now) {
         Instant idleEnd = session.getLastUsedAt().plus(lifetimeOf(session.getAccount().getRole()).idle());
         return now.isBefore(idleEnd) && now.isBefore(session.getExpiresAt());

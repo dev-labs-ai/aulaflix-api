@@ -78,7 +78,7 @@ class PasswordResetLogsTest extends IntegrationTest {
 
         assertThat(refused).isEqualTo(30);
         assertThat(output.getAll()).isNotBlank()
-                .contains("reset its password")
+                .contains("reset its password, ending its 1 sessions")
                 .doesNotContainIgnoringCase(email)
                 .doesNotContainIgnoringCase(unknown)
                 .doesNotContainIgnoringCase(admin)

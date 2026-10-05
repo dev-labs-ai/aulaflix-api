@@ -45,6 +45,12 @@ public class OpenApiConfiguration {
     public static final String BFF_KEY = "bffKey";
     public static final String WEBHOOK_TOKEN = "webhookToken";
 
+    /**
+     * The header an endpoint with a soft limit declares, for the CAPTCHA token; declaring it documents the refusals
+     * that come with it.
+     */
+    public static final String CAPTCHA_TOKEN = CaptchaFilter.TOKEN_HEADER;
+
     private static final String WEBHOOKS = "/v1/webhooks/**";
 
     @Bean
@@ -120,11 +126,24 @@ public class OpenApiConfiguration {
                     .schema(new StringSchema().example("203.0.113.7")));
             addRefusal(operation, "400", "`invalid-client-ip`: `AulaFlix-Client-IP` is missing or not an IP address");
             addRefusal(operation, "403", "`invalid-bff-key`: the request did not come from the BFF");
+            if (takesACaptchaToken(operation)) {
+                addRefusal(operation, "429", "`captcha-required`: past a soft limit, without a token Turnstile "
+                        + "accepts; retry at once with a fresh one");
+                addRefusal(operation, "503", "`captcha-unavailable`: Turnstile could not verify the token; retry "
+                        + "after Retry-After seconds").addHeaderObject(HttpHeaders.RETRY_AFTER, new Header()
+                        .description("Seconds to wait before trying again")
+                        .schema(new IntegerSchema().format(null)));
+            }
             addRefusal(operation, "429", "`rate-limited`: past a limit on requests; retry after Retry-After seconds")
                     .addHeaderObject(HttpHeaders.RETRY_AFTER, new Header()
                     .description("Seconds until the limit lets this request through")
                     .schema(new IntegerSchema().format(null)));
         });
+    }
+
+    private static boolean takesACaptchaToken(Operation operation) {
+        return operation.getParameters() != null && operation.getParameters().stream()
+                .anyMatch(parameter -> CAPTCHA_TOKEN.equals(parameter.getName()));
     }
 
     /** Adds the refusal, or appends it to what the endpoint already answers with that status. */

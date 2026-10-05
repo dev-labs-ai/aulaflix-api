@@ -378,6 +378,26 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
                 "Too many requests. Try again in Retry-After seconds."), retryAfter(refusal.retryAfter()), Map.of());
     }
 
+    /**
+     * Not logged: the soft limit's crossing already is, once per key and window, and the web retries at once with a
+     * token, so a line per refusal would only repeat it.
+     */
+    @ExceptionHandler(CaptchaRequiredException.class)
+    ResponseEntity<Object> captchaRequired() {
+        return respond(new Refusal(HttpStatus.TOO_MANY_REQUESTS, "captcha-required", "CAPTCHA required",
+                "Solve the CAPTCHA, then send the request again with its token in AulaFlix-Captcha-Token."),
+                new HttpHeaders(), Map.of());
+    }
+
+    @ExceptionHandler(CaptchaUnavailableException.class)
+    ResponseEntity<Object> captchaUnavailable(CaptchaUnavailableException refusal, HttpServletRequest request) {
+        log.warn("Refused {} {}: captcha-unavailable; {}", request.getMethod(), request.getRequestURI(),
+                refusal.getMessage());
+        return respond(new Refusal(HttpStatus.SERVICE_UNAVAILABLE, "captcha-unavailable", "CAPTCHA unavailable",
+                "The CAPTCHA cannot be verified now. Try again in Retry-After seconds."),
+                retryAfter(refusal.retryAfter()), Map.of());
+    }
+
     /** A valid session of the wrong role, refused by the chain or by {@code @PreAuthorize}. */
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<Object> forbidden(HttpServletRequest request) {

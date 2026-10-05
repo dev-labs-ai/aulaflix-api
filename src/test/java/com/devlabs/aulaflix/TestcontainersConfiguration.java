@@ -60,6 +60,16 @@ public class TestcontainersConfiguration {
         return registry -> asaas.applicationProperties().forEach(registry::add);
     }
 
+    @Bean(destroyMethod = "stop")
+    Turnstile turnstile() {
+        return new Turnstile();
+    }
+
+    @Bean
+    DynamicPropertyRegistrar turnstileProperties(Turnstile turnstile) {
+        return registry -> turnstile.applicationProperties().forEach(registry::add);
+    }
+
     @Bean
     MailpitContainer mailpitContainer() {
         return new MailpitContainer();

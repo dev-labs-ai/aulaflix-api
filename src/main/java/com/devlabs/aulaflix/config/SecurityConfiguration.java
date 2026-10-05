@@ -34,6 +34,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
+import com.devlabs.aulaflix.service.CaptchaGate;
 import com.devlabs.aulaflix.service.RateLimiter;
 import com.devlabs.aulaflix.service.SessionService;
 
@@ -43,7 +44,8 @@ import com.devlabs.aulaflix.service.SessionService;
  * Student's session, here and again in their {@code @PreAuthorize}, and so do their Orders, whose placement counts
  * against the client IP's checkout limit; while looking up an email, signing up and signing in need none, and count
  * against the client IP's strictest limits; so does posting a confirmation link, which any device may do, and so do
- * asking for a reset code and resetting a password with it. Playback needs no session, and refuses only an
+ * asking for a reset code and resetting a password with it. Past their soft limits, per client IP or global, looking
+ * up an email, signing up, signing in and asking for a reset code need a solved CAPTCHA too. Playback needs no session, and refuses only an
  * Admin's, here and again in its {@code @PreAuthorize}. Asaas's webhook needs neither the key nor a session, but
  * Asaas's token. The refusals the filters make go through the same {@code @RestControllerAdvice} as every other
  * refusal.
@@ -52,7 +54,7 @@ import com.devlabs.aulaflix.service.SessionService;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({BffProperties.class, RateLimitProperties.class})
+@EnableConfigurationProperties({BffProperties.class, RateLimitProperties.class, SoftLimitProperties.class})
 public class SecurityConfiguration {
 
     /** The OpenAPI document and Swagger UI, which the Admin reads through the SSH tunnel like its own endpoints. */
@@ -81,6 +83,7 @@ public class SecurityConfiguration {
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
                                        AsaasProperties asaas, RateLimiter limiter, RateLimitProperties limits,
+                                       CaptchaGate captchas, SoftLimitProperties softLimits,
                                        @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         ProblemResponses problems = new ProblemResponses(resolver);
         return http
@@ -109,6 +112,13 @@ public class SecurityConfiguration {
                         limits.passwordResetCodeLimit(), resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(PASSWORD_RESETS), limiter,
                         limits.passwordResetLimit(), resolver), SessionTokenFilter.class)
+                // After every hard limit, which counts the requests that carry a solved CAPTCHA too
+                .addFilterAfter(new CaptchaFilter(postsTo(LOOK_UPS, SIGN_INS), captchas,
+                        softLimits.lookUpAndSignInLimit(), resolver), SessionTokenFilter.class)
+                .addFilterAfter(new CaptchaFilter(postsTo(SIGN_UPS), captchas, softLimits.signUpLimit(), resolver),
+                        SessionTokenFilter.class)
+                .addFilterAfter(new CaptchaFilter(postsTo(PASSWORD_RESET_CODES), captchas,
+                        softLimits.passwordResetCodeLimit(), resolver), SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
