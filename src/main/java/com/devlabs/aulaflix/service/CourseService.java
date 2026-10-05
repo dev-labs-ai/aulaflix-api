@@ -48,16 +48,18 @@ public class CourseService {
     private final CourseRepository repository;
     private final LessonRepository lessons;
     private final WaitlistEntryRepository waitlistEntries;
+    private final WaitlistService waitlists;
     private final CatalogLocks locks;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     public CourseService(CourseRepository repository, LessonRepository lessons,
-                         WaitlistEntryRepository waitlistEntries, CatalogLocks locks, ApplicationEventPublisher events,
-                         Clock clock) {
+                         WaitlistEntryRepository waitlistEntries, WaitlistService waitlists, CatalogLocks locks,
+                         ApplicationEventPublisher events, Clock clock) {
         this.repository = repository;
         this.lessons = lessons;
         this.waitlistEntries = waitlistEntries;
+        this.waitlists = waitlists;
         this.locks = locks;
         this.events = events;
         this.clock = clock;
@@ -107,8 +109,10 @@ public class CourseService {
     }
 
     /**
-     * Sending the state the Course is already in changes nothing, so a retried move is harmless. The instant is cut to
-     * the microseconds PostgreSQL keeps, so that the answer shows what every later read will.
+     * Sending the state the Course is already in changes nothing, so a retried move is harmless, and a retried launch
+     * emails no one again. The launch from Coming soon emails the Waitlist in this transaction; from a Draft, which has
+     * no Waitlist, it emails no one. The instant is cut to the microseconds PostgreSQL keeps, so that the answer shows
+     * what every later read will.
      */
     @Transactional
     public AdminCourse changeStatus(long adminId, String courseId, CourseStatusChange change) {
@@ -120,7 +124,11 @@ public class CourseService {
             return adminView(course);
         }
         requireFitFor(change.status(), course);
+        boolean launchFromComingSoon = course.getStatus() == CourseStatus.COMING_SOON;
         course.moveTo(change.status(), clock.instant().truncatedTo(ChronoUnit.MICROS));
+        if (launchFromComingSoon) {
+            course.setNotifiedCount(waitlists.notifyLaunch(course));
+        }
         log.info("Admin {} moved Course {} to {}", adminId, course.getId(), change.status());
         return adminView(course);
     }
@@ -230,6 +238,7 @@ public class CourseService {
                 course.getStatus(),
                 readinessOf(course),
                 course.getStatus() == CourseStatus.COMING_SOON ? waitlistCount : null,
+                course.getNotifiedCount(),
                 course.getComingSoonAt(),
                 course.getOnSaleAt());
     }

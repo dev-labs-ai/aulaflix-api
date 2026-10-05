@@ -338,7 +338,7 @@ class OpenApiDocumentTest extends IntegrationTest {
                         "/v1/account/orders", "/v1/account/orders/{code}",
                         "/v1/account/orders/{code}/cancellation", "/v1/password-reset-codes",
                         "/v1/password-resets", "/v1/account/password-change-codes", "/v1/account/password",
-                        "/v1/waitlist-entries", "/v1/account/waitlists/{courseId}");
+                        "/v1/waitlist-entries", "/v1/waitlist-unsubscriptions", "/v1/account/waitlists/{courseId}");
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
                 {
                   "paths": {
@@ -1055,6 +1055,19 @@ class OpenApiDocumentTest extends IntegrationTest {
                         }
                       }
                     },
+                    "/v1/waitlist-unsubscriptions": {
+                      "post": {
+                        "tags": ["Waitlist"],
+                        "security": [{"bffKey": []}],
+                        "requestBody": {
+                          "content": {
+                            "application/json": {
+                              "schema": {"$ref": "#/components/schemas/WaitlistUnsubscriptionRequest"}
+                            }
+                          }
+                        }
+                      }
+                    },
                     "/v1/account/waitlists/{courseId}": {
                       "get": {"tags": ["Waitlist"], "security": [{"bearer": [], "bffKey": []}]},
                       "put": {"tags": ["Waitlist"], "security": [{"bearer": [], "bffKey": []}]},
@@ -1065,15 +1078,23 @@ class OpenApiDocumentTest extends IntegrationTest {
         assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
                 .extractingPath("$.components.schemas.WaitlistEntryRequest.properties").asMap()
                 .containsOnlyKeys("courseId", "email");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.components.schemas.WaitlistUnsubscriptionRequest.properties").asMap()
+                .containsOnlyKeys("token");
         assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()
                 .extractingPath("$.components.schemas.AdminCourse.properties").asMap()
-                .containsKey("waitlistCount");
+                .containsKeys("waitlistCount", "notifiedCount");
     }
 
     @Test
     void documentsEveryStatusEachWaitlistEndpointCanAnswer() {
         assertResponsesIn("bff", "/v1/waitlist-entries", "post",
                 "204", "400", "401", "403", "409", "429", "500", "503");
+        assertResponsesIn("bff", "/v1/waitlist-unsubscriptions", "post",
+                "204", "400", "401", "403", "429", "500");
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson()
+                .extractingPath("$.paths['/v1/waitlist-unsubscriptions'].post.responses['400'].description")
+                .asString().contains("`invalid-unsubscribe-link`", "`invalid-request`");
         assertResponsesIn("bff", "/v1/account/waitlists/{courseId}", "get",
                 "204", "400", "401", "403", "404", "429", "500");
         assertResponsesIn("bff", "/v1/account/waitlists/{courseId}", "put",

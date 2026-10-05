@@ -93,6 +93,9 @@ public class CourseEntity {
     @Column(name = "on_sale_at")
     private Instant onSaleAt;
 
+    @Column(name = "notified_count")
+    private Integer notifiedCount;
+
     protected CourseEntity() {
     }
 
@@ -253,5 +256,14 @@ public class CourseEntity {
 
     public Instant getOnSaleAt() {
         return onSaleAt;
+    }
+
+    /** How many launch emails the launch from Coming soon queued, or null if the Course never launched from there. */
+    public Integer getNotifiedCount() {
+        return notifiedCount;
+    }
+
+    public void setNotifiedCount(Integer notifiedCount) {
+        this.notifiedCount = notifiedCount;
     }
 }

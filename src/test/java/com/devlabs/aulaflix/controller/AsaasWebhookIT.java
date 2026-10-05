@@ -29,6 +29,7 @@ import com.devlabs.aulaflix.TestcontainersConfiguration;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"aulaflix.bff.key=" + BffApi.KEY, "aulaflix.codes.hmac-key=" + IntegrationTest.CODES_HMAC_KEY,
+                "aulaflix.waitlist.unsubscribe-key=" + IntegrationTest.UNSUBSCRIBE_KEY,
                 "aulaflix.scheduling.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class AsaasWebhookIT {

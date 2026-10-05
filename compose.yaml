@@ -89,6 +89,7 @@ services:
       - spring.datasource.password
       - aulaflix.bff.key
       - aulaflix.codes.hmac-key
+      - aulaflix.waitlist.unsubscribe-key
       - aulaflix.storage.read-only.access-key-id
       - aulaflix.storage.read-only.secret-access-key
       - aulaflix.storage.read-write.access-key-id
@@ -144,6 +145,8 @@ secrets:
     file: ./secrets/aulaflix.bff.key
   aulaflix.codes.hmac-key:
     file: ./secrets/aulaflix.codes.hmac-key
+  aulaflix.waitlist.unsubscribe-key:
+    file: ./secrets/aulaflix.waitlist.unsubscribe-key
   minio.license:
     file: ./secrets/minio.license
   storage.root-user:

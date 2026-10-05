@@ -13,6 +13,7 @@ mkdir -p secrets
 openssl rand -base64 24 > secrets/spring.datasource.password
 openssl rand -base64 32 > secrets/aulaflix.bff.key   # the web's server sends the same key
 openssl rand -base64 32 > secrets/aulaflix.codes.hmac-key   # the 6-digit codes are stored as HMACs under it
+openssl rand -base64 32 > secrets/aulaflix.waitlist.unsubscribe-key   # AES-256: the launch email's unsubscribe links
 # The storage: its root, and the API's two keys, which storage-init creates. Hex, since a key ID goes into URLs.
 openssl rand -hex 10 > secrets/storage.root-user
 openssl rand -hex 24 > secrets/storage.root-password
@@ -32,8 +33,9 @@ docker compose up -d     # PostgreSQL on 127.0.0.1:5432, AIStor Free's S3 API on
 ```
 
 The API applies its Flyway migrations when it starts. It refuses to start without a BFF key or a codes HMAC key of at
-least 32 characters, without the storage's two keys, without the Asaas key and webhook token, or without the Turnstile
-secret.
+least 32 characters, without an unsubscribe key of 32 bytes in base64, without the storage's two keys, without the
+Asaas key and webhook token, or without the Turnstile secret. Keep the unsubscribe key: the links in launch emails
+never expire, and a new key breaks every one already sent.
 
 AIStor Free answers every S3 request with a denial until it has its license, which the same file serves locally, in
 the tests and in production. On every `up`, `storage-init` creates the private `videos` bucket and the API's two
@@ -51,6 +53,7 @@ The secret files, and the services that mount them:
 | `spring.datasource.password` | postgres, api |
 | `aulaflix.bff.key` | api, web |
 | `aulaflix.codes.hmac-key` | api |
+| `aulaflix.waitlist.unsubscribe-key` | api |
 | `aulaflix.storage.read-only.access-key-id`, `aulaflix.storage.read-only.secret-access-key` | storage-init, api |
 | `aulaflix.storage.read-write.access-key-id`, `aulaflix.storage.read-write.secret-access-key` | storage-init, api |
 | `storage.root-user`, `storage.root-password` | storage, storage-init |
@@ -318,6 +321,24 @@ idempotently (409 `waitlist-closed` as above), and `DELETE` leaves, answering 20
 when an entry holds the Account's email, made as a Visitor before signing up too, or 404 `not-on-waitlist`. An entry
 holds only the email and the Course, with no link to an Account; Visitors leave by the unsubscribe link of the launch
 email. An Admin's token gets 403 on all of these.
+
+### The launch email and unsubscribing
+
+When a Course moves from Coming soon to On sale, the same transaction queues one launch email per entry of its
+Waitlist, but none to a Student with an active Enrollment in the Course, then deletes every entry, and stores how many
+it emailed as the Course's `notifiedCount`, which the Admin's reads show. If the move fails, no email goes and no entry
+goes. A retried move answers 200 and emails no one again; a Draft that goes On sale has no Waitlist, and no
+`notifiedCount`. The email carries the summary, the price, the Pix price, the installments and a link to
+`{webBase}/cursos/{slug}`.
+
+Each launch email carries a token: the recipient's email under AES-256-GCM, base64url, sealed with the secret file
+`aulaflix.waitlist.unsubscribe-key`. It never expires, and the API keeps no record of it. The email offers it twice:
+`List-Unsubscribe: <{webBase}/api/waitlist/unsubscribe?token=…>` with `List-Unsubscribe-Post:
+List-Unsubscribe=One-Click`, which a mail client posts to in one click and a mail scanner never does, and a body link
+to `{webBase}/cancelar-aviso#<token>`, a page that asks first. Either way the web posts the token to
+`POST /v1/waitlist-unsubscriptions` `{ token }`, which takes the email off every Waitlist and answers 204, whether or
+not it was on any. A token the key did not make, or one changed in any way, gets 400 `invalid-unsubscribe-link`. Only
+the general per-IP limit of BFF requests applies. Joining again later is fresh consent.
 
 ## Orders
 
