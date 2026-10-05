@@ -143,6 +143,26 @@ class DuplicatePaymentTest extends IntegrationTest {
         assertThat(purchaseEmails()).isEmpty();
     }
 
+    /** The Student switched methods and paid both: the cancelled Order's payment is recorded, and refunded by hand. */
+    @Test
+    void aPaymentOfACancelledOrderWhileTheCourseIsHeldIsADuplicatePayment() {
+        long course = courses.onSale(newSlug());
+        String cancelled = orders.placedPix(course, Cpfs.newCpf());
+        storedOrders.cancel(cancelled);
+        String paid = orders.placedPix(course, null);
+        confirm(paid);
+
+        confirm(cancelled);
+        List<String> queuedAlerts = storedEmails.recipientsOf(ALERT_TEMPLATE, cancelled);
+
+        assertThat(queuedAlerts).contains(adminEmail);
+        assertThat(orders.get(cancelled)).bodyJson().isLenientlyEqualTo("""
+                {"status": "PAID", "duplicatePayment": true}""");
+        assertThat(enrollments.list("email=" + studentEmail)).bodyJson().isLenientlyEqualTo("""
+                {"items": [{"status": "ACTIVE", "origin": "ORDER", "orderCode": "%s"}], "totalItems": 1}"""
+                .formatted(paid));
+    }
+
     @Test
     void emailsEveryAdminOneAlertNamingTheOrder() {
         String otherAdminEmail = newAdminEmail();

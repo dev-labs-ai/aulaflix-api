@@ -38,6 +38,14 @@ public final class StoredOrders {
         return copy;
     }
 
+    /**
+     * Cancels the Order with its charge left payable at Asaas, as the switch to the other method leaves a Pix whose
+     * Student paid it all the same.
+     */
+    public void cancel(String code) {
+        jdbc.update("update orders set status = 'CANCELLED' where code = ?", code);
+    }
+
     /** Leaves the Order as if its charge's id and QR code had never come back from Asaas. */
     public void forgetCharge(String code) {
         jdbc.update("""

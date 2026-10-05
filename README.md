@@ -297,8 +297,9 @@ The webhook worker runs `aulaflix.asaas.webhook-interval` after the end of its r
 For each pending `PAYMENT_CONFIRMED` or `PAYMENT_RECEIVED`, it re-reads the charge from Asaas with the API's key and
 acts on that answer, never on the event's body. The charge must be the Order's, under its code as the external
 reference and for its amount, or the event is `UNPROCESSABLE`, with a `WARN`; a charge that is not `CONFIRMED` or
-`RECEIVED` grants nothing. A paid charge makes the Order `PAID`, with `paidAt`, and grants one Enrollment whose origin
-is the Order, however many events arrive, and queues the purchase confirmation email. A Student who already has the
+`RECEIVED` grants nothing. A paid charge makes the Order `PAID`, with `paidAt`, even an Order that expired or was
+cancelled meanwhile, since money taken is always recorded, and grants one Enrollment whose origin is the Order, however
+many events arrive, and queues the purchase confirmation email. A Student who already has the
 Course keeps the Enrollment they had, granted by hand or by another Order: this one is a Duplicate payment, `PAID`
 with `duplicatePayment: true` in the Student's list and read, and grants nothing. Every Admin is emailed the
 Duplicate payment alert, once, however many events arrive; it names the Order's code, to refund it by hand. While
@@ -313,14 +314,16 @@ with its Order: ending it by hand gets 409 `paid-enrollment`.
 Two more jobs keep the Orders in step with Asaas, each resting its interval after the end of its run before, never in
 admin mode. The expiry job (`aulaflix.asaas.expiry-interval`, 1 min) takes every Order still awaiting payment at its
 `expiresAt`, 30 minutes after a Pix was placed, and re-reads its charge first: a paid charge wins, and the Order is
-paid as by the webhook, Enrollment and email included. Otherwise the charge is deleted at Asaas, and only then is the
-Order `EXPIRED`; it leaves the Student's list, nothing is emailed, and the Student's next Pix is a new Order with a new
-QR code. A payment Asaas confirms after the expiry still wins: the webhook pays an `EXPIRED` Order too.
+paid as by the webhook, Enrollment and email included, or a Duplicate payment and its alert. Otherwise the charge is
+deleted at Asaas, and only then is the Order `EXPIRED`; it leaves the Student's list, nothing is emailed, and the
+Student's next Pix is a new Order with a new QR code. A payment Asaas confirms after the expiry still wins: the webhook
+pays an `EXPIRED` Order too.
 
 Reconciliation (`aulaflix.asaas.reconciliation-interval`, 2 min) catches lost webhooks: it re-reads the charge of every
 Order that has awaited payment longer than `aulaflix.asaas.reconciliation-delay` (5 min) and applies what it shows,
-once, however many webhooks come later. It also searches Asaas once more, after that delay, under the code of each
-Order cancelled by a failed placement that did not delete its charge by id, and deletes whatever it finds there.
+once, however many webhooks come later, Duplicate payments included. It also searches Asaas once more, after that
+delay, under the code of each Order cancelled by a failed placement that did not delete its charge by id, and deletes
+whatever it finds there.
 
 While Asaas cannot be reached, either job stops at the Order it was on, logs a `WARN`, and leaves it and the rest
 unchanged for the next run. A call Asaas refuses is logged at `ERROR`: the expiry job expires the Order all the same,
