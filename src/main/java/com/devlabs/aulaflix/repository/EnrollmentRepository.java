@@ -1,5 +1,6 @@
 package com.devlabs.aulaflix.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -16,6 +17,20 @@ import com.devlabs.aulaflix.domain.entity.EnrollmentEntity;
 public interface EnrollmentRepository extends JpaRepository<EnrollmentEntity, Long> {
 
     boolean existsByStudentIdAndCourseIdAndEndedAtIsNull(long studentId, long courseId);
+
+    /** The Student's active Enrollments with their Courses, in one query, oldest first. */
+    @Query("""
+            select e from EnrollmentEntity e join fetch e.course
+            where e.student.id = :studentId and e.endedAt is null
+            order by e.startedAt, e.id""")
+    List<EnrollmentEntity> findActiveWithCourseByStudentId(@Param("studentId") long studentId);
+
+    /** The Student's active Enrollment in the Course, with the Course. */
+    @Query("""
+            select e from EnrollmentEntity e join fetch e.course
+            where e.student.id = :studentId and e.course.id = :courseId and e.endedAt is null""")
+    Optional<EnrollmentEntity> findActiveWithCourse(@Param("studentId") long studentId,
+                                                    @Param("courseId") long courseId);
 
     /** Holds the Enrollment's row lock until the transaction ends. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
