@@ -1,6 +1,8 @@
 package com.devlabs.aulaflix;
 
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -15,6 +17,11 @@ import tools.jackson.databind.json.JsonMapper;
 public final class WaitlistApi {
 
     public static final String ENTRIES = "/v1/waitlist-entries";
+
+    public static final String UNSUBSCRIPTIONS = "/v1/waitlist-unsubscriptions";
+
+    private static final Pattern UNSUBSCRIBE_LINK =
+            Pattern.compile("http://localhost:3001/cancelar-aviso#([A-Za-z0-9_-]+)");
 
     private final BffApi bff;
 
@@ -45,7 +52,32 @@ public final class WaitlistApi {
         return bff.delete(ofStudent(courseId)).header(HttpHeaders.AUTHORIZATION, "Bearer " + token).exchange();
     }
 
+    /** The page of the launch email's link, or the one-click unsubscribe, posts the token the same way. */
+    public MvcTestResult unsubscribe(String token) {
+        return unsubscribeWith(JsonMapper.shared().writeValueAsString(Map.of("token", token)));
+    }
+
+    public MvcTestResult unsubscribeWith(String body) {
+        return bff.post(UNSUBSCRIPTIONS).contentType(MediaType.APPLICATION_JSON).content(body).exchange();
+    }
+
     public static String ofStudent(Object courseId) {
         return "/v1/account/waitlists/" + courseId;
+    }
+
+    /**
+     * The token in the launch email's body link, {@code {webBase}/cancelar-aviso#<token>}, failing the test unless the
+     * email carries exactly one such link. The tests' web base is the local one.
+     */
+    public static String unsubscribeTokenIn(Mailpit.Email email) {
+        Matcher link = UNSUBSCRIBE_LINK.matcher(email.text());
+        if (!link.find()) {
+            throw new AssertionError("No unsubscribe link in: " + email.text());
+        }
+        String token = link.group(1);
+        if (link.find()) {
+            throw new AssertionError("More than one unsubscribe link in: " + email.text());
+        }
+        return token;
     }
 }

@@ -78,11 +78,30 @@ public final class AdminCourses {
      * Module, "Fundamentos", gets its Free lesson, "O que é uma API", published with a three-second video.
      */
     public long launch(long courseId, String slug) {
+        readyToLaunch(courseId, slug);
+        moveTo(courseId, "ON_SALE");
+        return courseId;
+    }
+
+    /** Everything {@link #launch} does but the move itself, so that a test can make the move as it needs. */
+    public void readyToLaunch(long courseId, String slug) {
         long module = addModule(courseId, "Fundamentos");
         long freeLesson = addPublishedLesson(module, "O que é uma API", "o-que-e-uma-api", "three-seconds.mp4");
         putDocument(courseId, fullDocument(slug, freeLesson));
-        moveTo(courseId, "ON_SALE");
-        return courseId;
+    }
+
+    /** The Admin's move of the Course to the state, whatever the answer. */
+    public MvcTestResult changeStatus(long courseId, String status) {
+        return mvc.put().uri("/v1/admin/courses/%d/status".formatted(courseId))
+                .header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\": \"%s\"}".formatted(status))
+                .exchange();
+    }
+
+    /** The Admin's read of the Course. */
+    public MvcTestResult get(long courseId) {
+        return mvc.get().uri("/v1/admin/courses/" + courseId).header(HttpHeaders.AUTHORIZATION, bearer).exchange();
     }
 
     /** The id of the Course's Free lesson, as its document names it. */
@@ -167,7 +186,7 @@ public final class AdminCourses {
     }
 
     public void moveTo(long courseId, String status) {
-        put("/v1/admin/courses/%d/status".formatted(courseId), "{\"status\": \"%s\"}".formatted(status));
+        assertThat(changeStatus(courseId, status)).hasStatusOk();
     }
 
     public void delete(long courseId) {

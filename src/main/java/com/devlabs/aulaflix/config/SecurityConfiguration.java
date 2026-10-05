@@ -83,6 +83,9 @@ public class SecurityConfiguration {
 
     private static final String WAITLIST_ENTRIES = "/v1/waitlist-entries";
 
+    /** Only the general per-IP limit of BFF requests: the token alone decides, and it reveals no one. */
+    private static final String WAITLIST_UNSUBSCRIPTIONS = "/v1/waitlist-unsubscriptions";
+
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
                                        AsaasProperties asaas, RateLimiter limiter, RateLimitProperties limits,
@@ -130,7 +133,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS, EMAIL_CONFIRMATIONS,
-                                PASSWORD_RESET_CODES, PASSWORD_RESETS).permitAll()
+                                PASSWORD_RESET_CODES, PASSWORD_RESETS, WAITLIST_UNSUBSCRIPTIONS).permitAll()
                         .requestMatchers(HttpMethod.POST, WAITLIST_ENTRIES).not().hasRole("ADMIN")
                         .requestMatchers("/v1/account", "/v1/account/**", "/v1/sessions/current").hasRole("STUDENT")
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
