@@ -42,8 +42,8 @@ import com.devlabs.aulaflix.service.SessionService;
  * Admin session, here and again in its own {@code @PreAuthorize}. The Student's own Account and session need a
  * Student's session, here and again in their {@code @PreAuthorize}, and so do their Orders, whose placement counts
  * against the client IP's checkout limit; while looking up an email, signing up and signing in need none, and count
- * against the client IP's strictest limits; so does posting a confirmation link, which any device may do. Playback
- * needs no session, and refuses only an
+ * against the client IP's strictest limits; so does posting a confirmation link, which any device may do, and so do
+ * asking for a reset code and resetting a password with it. Playback needs no session, and refuses only an
  * Admin's, here and again in its {@code @PreAuthorize}. Asaas's webhook needs neither the key nor a session, but
  * Asaas's token. The refusals the filters make go through the same {@code @RestControllerAdvice} as every other
  * refusal.
@@ -74,6 +74,10 @@ public class SecurityConfiguration {
 
     private static final String WEBHOOK = "/v1/webhooks/asaas";
 
+    private static final String PASSWORD_RESET_CODES = "/v1/password-reset-codes";
+
+    private static final String PASSWORD_RESETS = "/v1/password-resets";
+
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, SessionService sessions, BffProperties bff,
                                        AsaasProperties asaas, RateLimiter limiter, RateLimitProperties limits,
@@ -101,10 +105,15 @@ public class SecurityConfiguration {
                         resolver), SessionTokenFilter.class)
                 .addFilterAfter(new ClientIpLimitFilter(postsTo(EMAIL_CONFIRMATIONS), limiter,
                         limits.emailConfirmationLimit(), resolver), SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(postsTo(PASSWORD_RESET_CODES), limiter,
+                        limits.passwordResetCodeLimit(), resolver), SessionTokenFilter.class)
+                .addFilterAfter(new ClientIpLimitFilter(postsTo(PASSWORD_RESETS), limiter,
+                        limits.passwordResetLimit(), resolver), SessionTokenFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, "/v1/admin/sessions").permitAll()
                         .requestMatchers(ADMIN).hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS, EMAIL_CONFIRMATIONS).permitAll()
+                        .requestMatchers(HttpMethod.POST, LOOK_UPS, SIGN_UPS, SIGN_INS, EMAIL_CONFIRMATIONS,
+                                PASSWORD_RESET_CODES, PASSWORD_RESETS).permitAll()
                         .requestMatchers("/v1/account", "/v1/account/**", "/v1/sessions/current").hasRole("STUDENT")
                         .requestMatchers(HttpMethod.GET, "/v1/courses", "/v1/courses/*").permitAll()
                         .requestMatchers(HttpMethod.GET, PLAYBACK).not().hasRole("ADMIN")

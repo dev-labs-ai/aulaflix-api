@@ -48,6 +48,11 @@ public class SignInService {
         return signIn(Role.STUDENT, studentFailures, email, password);
     }
 
+    /** Lifts the block on a Student's email, and forgets its failures: a reset proves the email theirs. */
+    public void clearStudentBlock(String normalizedEmail) {
+        studentFailures.forget(normalizedEmail);
+    }
+
     /**
      * Checks the block before the password, so that a blocked email learns nothing about its password. An Account of
      * the other role fails like a wrong password. Not transactional: bcrypt runs between the read and the write, and

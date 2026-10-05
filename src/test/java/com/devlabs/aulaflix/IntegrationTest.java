@@ -16,10 +16,15 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
  * sends far faster than any test queues, so that one drain sends every email queued so far.
  */
 @SpringBootTest(properties = {"springdoc.cache.disabled=true", "aulaflix.bff.key=" + BffApi.KEY,
+        "aulaflix.codes.hmac-key=" + IntegrationTest.CODES_HMAC_KEY,
+        "aulaflix.password-reset.code-request-time=100ms",
         "aulaflix.scheduling.enabled=false", "aulaflix.outbox.send-rate.emails=1000"})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 public abstract class IntegrationTest {
+
+    /** The key the tests' application signs its 6-digit codes with. */
+    public static final String CODES_HMAC_KEY = "codes-hmac-key-of-the-tests-0123456789abc";
 
     @Autowired
     protected MutableClock clock;
