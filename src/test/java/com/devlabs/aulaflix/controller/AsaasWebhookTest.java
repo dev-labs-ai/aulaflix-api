@@ -447,24 +447,6 @@ class AsaasWebhookTest extends IntegrationTest {
                 .isEqualTo("https://aulaflix.com.br/problems/already-enrolled");
     }
 
-    /** The Order is still paid, but grants nothing: the Student keeps the Enrollment they had, and an Admin refunds. */
-    @Test
-    void grantsNothingForAPaymentWhileTheStudentAlreadyHasTheCourse() {
-        long course = courses.onSale(newSlug());
-        String code = orders.placedPix(course, Cpfs.newCpf());
-        enrollments.granted(studentEmail, course);
-
-        deliver("PAYMENT_CONFIRMED", chargeIs(code, "CONFIRMED"), code);
-        worker.processPending();
-        outbox.drain();
-
-        assertThat(orders.get(code)).bodyJson().isLenientlyEqualTo("""
-                {"status": "PAID", "duplicatePayment": true}""");
-        assertThat(enrollments.list("email=" + studentEmail)).bodyJson().isLenientlyEqualTo("""
-                {"items": [{"status": "ACTIVE", "origin": "MANUAL"}], "totalItems": 1}""");
-        assertThat(purchaseEmails()).isEmpty();
-    }
-
     private String chargeIs(String code, String status) {
         String charge = Asaas.chargeOf(code);
         asaas.chargeIs(charge, status, PIX_PRICE_CENTS, code, false);

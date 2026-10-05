@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.devlabs.aulaflix.domain.entity.AccountEntity;
 import com.devlabs.aulaflix.domain.entity.CourseEntity;
 import com.devlabs.aulaflix.domain.entity.OrderEntity;
+import com.devlabs.aulaflix.domain.entity.Role;
 import com.devlabs.aulaflix.domain.entity.WebhookEventEntity;
 import com.devlabs.aulaflix.domain.entity.WebhookEventState;
 import com.devlabs.aulaflix.repository.AccountRepository;
@@ -111,7 +112,7 @@ class OrderPayments {
 
     /**
      * Grants the Enrollment the Order buys, and queues the email that records it; unless the Student already has the
-     * Course, which makes the payment a Duplicate payment that grants nothing.
+     * Course, which makes the payment a Duplicate payment that grants nothing and alerts every Admin.
      */
     private void grant(OrderEntity order) {
         AccountEntity student = order.getStudent();
@@ -120,11 +121,20 @@ class OrderPayments {
             order.markDuplicatePayment();
             log.warn("Order {} is a Duplicate payment: Student {} already has Course {}", order.getCode(),
                     student.getId(), course.getId());
+            alertAdmins(order);
             return;
         }
         enrollments.grantForOrder(order);
         outbox.enqueue(templates.purchaseConfirmation(student.getEmail(), student.getName(), order.getCode(),
                 order.getAmountCents(), course.getTitle(), course.getSlug()));
+    }
+
+    /** Queues the Duplicate payment alert to every Admin, in the transaction that marks the Order. */
+    private void alertAdmins(OrderEntity order) {
+        for (AccountEntity admin : accounts.findByRoleOrderById(Role.ADMIN)) {
+            outbox.enqueue(templates.duplicatePaymentAlert(admin.getEmail(), admin.getName(), order.getCode(),
+                    order.getAmountCents(), order.getCourse().getTitle()));
+        }
     }
 
     /** Cut to the microseconds PostgreSQL keeps, so that an answer shows what every later read will. */

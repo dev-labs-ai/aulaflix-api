@@ -5,5 +5,7 @@ public enum EmailTemplate {
     /** The link that confirms a Student's email, which is also the welcome email. */
     CONFIRMATION_LINK,
     /** The Student's record that an Order was paid and its Course opened. */
-    PURCHASE_CONFIRMATION
+    PURCHASE_CONFIRMATION,
+    /** Every Admin's alert that an Order was a Duplicate payment, to refund by hand. */
+    DUPLICATE_PAYMENT_ALERT
 }
