@@ -1,5 +1,6 @@
 package com.devlabs.aulaflix.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,6 +44,17 @@ public interface LessonRepository extends JpaRepository<LessonEntity, Long> {
             group by l.course.id""")
     List<CourseLessonCount> countLessonsOfOnSaleCourses();
 
+    /**
+     * How many Lessons each of the Courses has, and how many of them are published, all in one query; a Course with no
+     * Lesson is left out.
+     */
+    @Query("""
+            select l.course.id as courseId, count(l) as lessonCount, count(l.publishedAt) as publishedCount
+            from LessonEntity l
+            where l.course.id in :courseIds
+            group by l.course.id""")
+    List<CourseLessonCounts> countLessonsByCourse(@Param("courseIds") Collection<Long> courseIds);
+
     /** The id of the Lesson's Course, read without loading the Lesson. */
     @Query("select l.course.id from LessonEntity l where l.id = :id")
     Optional<Long> findCourseIdById(@Param("id") long id);
@@ -56,5 +68,14 @@ public interface LessonRepository extends JpaRepository<LessonEntity, Long> {
         long getCourseId();
 
         long getLessonCount();
+    }
+
+    interface CourseLessonCounts {
+
+        long getCourseId();
+
+        long getLessonCount();
+
+        long getPublishedCount();
     }
 }

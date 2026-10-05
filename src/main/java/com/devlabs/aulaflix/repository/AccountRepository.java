@@ -18,6 +18,11 @@ public interface AccountRepository extends JpaRepository<AccountEntity, Long> {
 
     Optional<AccountEntity> findByEmailAndRole(String email, Role role);
 
+    /** Holds the row's lock until the transaction ends, so that one Account's requests of a kind go one at a time. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from AccountEntity a where a.id = :id")
+    Optional<AccountEntity> findByIdForUpdate(@Param("id") long id);
+
     /** Holds the Account's row lock until the transaction ends. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<AccountEntity> findLockedByEmailAndRole(String email, Role role);

@@ -1,0 +1,175 @@
+# Production, on the VPS (ADR 0003): the API, PostgreSQL and the storage. The web deploys from aulaflix-web, and the
+# edge (nginx, with deploy/nginx/ as its AulaFlix server blocks) from vps-edge, both in their own Compose projects; they
+# meet the API and the storage on the external network edge-aulaflix.
+#
+# The VPS keeps a clone of this repository at /srv/aulaflix/aulaflix-api and runs Compose from its deploy/ folder,
+# with a .env next to this file (see .env.example). GitHub Actions deploys the API alone, on every push to main:
+#   docker compose pull api && docker compose up -d api
+#
+# Every secret is a file under /srv/aulaflix/secrets/ (mode 600), mounted at /run/secrets/ and listed at the bottom.
+# Nothing secret is in the environment, so docker inspect shows none.
+name: aulaflix
+
+services:
+  # The API, from the image GitHub Actions pushes to GHCR, at the tag .env pins. Its only published port is on the
+  # VPS's loopback, for the Admin's SSH tunnel; the edge reaches its webhook over edge-aulaflix
+  api:
+    image: ghcr.io/dev-labs-ai/aulaflix-api:${AULAFLIX_API_TAG:?set AULAFLIX_API_TAG in .env}
+    environment:
+      # application-production.properties, inside the image: every non-secret production setting
+      SPRING_PROFILES_ACTIVE: production
+    secrets:
+      - spring.datasource.password
+      - aulaflix.bff.key
+      - aulaflix.storage.read-only.access-key-id
+      - aulaflix.storage.read-only.secret-access-key
+      - aulaflix.storage.read-write.access-key-id
+      - aulaflix.storage.read-write.secret-access-key
+      - aulaflix.asaas.api-key
+      - aulaflix.asaas.webhook-token
+      - spring.mail.username
+      - spring.mail.password
+      - aulaflix.turnstile.secret-key
+      - aulaflix.codes.hmac-key
+      - aulaflix.waitlist.unsubscribe-key
+    networks:
+      - edge-aulaflix
+      - aulaflix-data
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    # The heap is 75% of it (-XX:MaxRAMPercentage=75, in the image)
+    mem_limit: 1536m
+    # Longer than Spring Boot's graceful shutdown, 30 s at most, so a deploy never kills it mid-drain
+    stop_grace_period: 40s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18.6-alpine3.24
+    command: ["postgres", "-c", "shared_buffers=256MB"]
+    environment:
+      POSTGRES_DB: aulaflix
+      POSTGRES_USER: aulaflix
+      POSTGRES_PASSWORD_FILE: /run/secrets/spring.datasource.password
+    secrets:
+      - spring.datasource.password
+    networks:
+      - aulaflix-data
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=aulaflix --dbname=aulaflix"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 1g
+    restart: unless-stopped
+
+  # AIStor Free, pinned, holding the Lesson videos. The edge proxies media.aulaflix.com.br/videos/ to it over
+  # edge-aulaflix; its console is not published, and the owner runs mc through `docker compose run`
+  storage:
+    image: quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_LICENSE: /run/secrets/minio.license
+      MINIO_ROOT_USER_FILE: /run/secrets/storage.root-user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/storage.root-password
+    secrets:
+      - minio.license
+      - storage.root-user
+      - storage.root-password
+    networks:
+      - edge-aulaflix
+      - aulaflix-data
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 2g
+    restart: unless-stopped
+
+  # One-shot, on every up: the private videos bucket, the two policies and the API's two users. Running it again
+  # changes nothing. It and storage alone hold the root credentials
+  storage-init:
+    image: quay.io/minio/aistor/mc:RELEASE.2026-09-19T15-24-59Z
+    entrypoint: ["sh", "/storage/init.sh"]
+    environment:
+      STORAGE_URL: http://storage:9000
+    secrets:
+      - storage.root-user
+      - storage.root-password
+      - aulaflix.storage.read-only.access-key-id
+      - aulaflix.storage.read-only.secret-access-key
+      - aulaflix.storage.read-write.access-key-id
+      - aulaflix.storage.read-write.secret-access-key
+    networks:
+      - aulaflix-data
+    volumes:
+      - ../storage:/storage:ro
+    depends_on:
+      storage:
+        condition: service_healthy
+    restart: "no"
+
+networks:
+  # Created once by the owner (docker network create --ipv6 edge-aulaflix), and shared with the web and the edge
+  edge-aulaflix:
+    external: true
+  # PostgreSQL lives only here, and nothing on it reaches the internet
+  aulaflix-data:
+    internal: true
+
+# On the VPS, under /srv/aulaflix/secrets/, each file named after the property it sets. The image runs as uid 10001,
+# and Compose mounts each file with its owner and mode on the VPS, so the files the API reads belong to 10001 (mode
+# 600); the others stay root's (mode 600), read only by the root-run postgres, storage and storage-init.
+secrets:
+  # The API and PostgreSQL
+  spring.datasource.password:
+    file: /srv/aulaflix/secrets/spring.datasource.password
+  # The API and the web (aulaflix-web's Compose file mounts the same file)
+  aulaflix.bff.key:
+    file: /srv/aulaflix/secrets/aulaflix.bff.key
+  # The API, and storage-init, which creates the two users with them
+  aulaflix.storage.read-only.access-key-id:
+    file: /srv/aulaflix/secrets/aulaflix.storage.read-only.access-key-id
+  aulaflix.storage.read-only.secret-access-key:
+    file: /srv/aulaflix/secrets/aulaflix.storage.read-only.secret-access-key
+  aulaflix.storage.read-write.access-key-id:
+    file: /srv/aulaflix/secrets/aulaflix.storage.read-write.access-key-id
+  aulaflix.storage.read-write.secret-access-key:
+    file: /srv/aulaflix/secrets/aulaflix.storage.read-write.secret-access-key
+  # The API alone
+  aulaflix.asaas.api-key:
+    file: /srv/aulaflix/secrets/aulaflix.asaas.api-key
+  aulaflix.asaas.webhook-token:
+    file: /srv/aulaflix/secrets/aulaflix.asaas.webhook-token
+  spring.mail.username:
+    file: /srv/aulaflix/secrets/spring.mail.username
+  spring.mail.password:
+    file: /srv/aulaflix/secrets/spring.mail.password
+  aulaflix.turnstile.secret-key:
+    file: /srv/aulaflix/secrets/aulaflix.turnstile.secret-key
+  aulaflix.codes.hmac-key:
+    file: /srv/aulaflix/secrets/aulaflix.codes.hmac-key
+  aulaflix.waitlist.unsubscribe-key:
+    file: /srv/aulaflix/secrets/aulaflix.waitlist.unsubscribe-key
+  # The storage alone, and storage-init for the root credentials
+  minio.license:
+    file: /srv/aulaflix/secrets/minio.license
+  storage.root-user:
+    file: /srv/aulaflix/secrets/storage.root-user
+  storage.root-password:
+    file: /srv/aulaflix/secrets/storage.root-password
+
+volumes:
+  postgres-data:
+  storage-data:

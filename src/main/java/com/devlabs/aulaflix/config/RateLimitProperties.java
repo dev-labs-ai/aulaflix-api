@@ -39,7 +39,10 @@ public record RateLimitProperties(
         Limit checkoutsPerIp,
         @NotNull
         @Valid
-        Limit checkouts) {
+        Limit checkouts,
+        @NotNull
+        @Valid
+        Limit emailConfirmations) {
 
     /** Every BFF request, whatever it asks for, per client IP. */
     RateLimit bffRequestLimit() {
@@ -74,6 +77,11 @@ public record RateLimitProperties(
     /** Every Order placement, whatever it answers, of everyone at once. */
     RateLimit checkoutLimit() {
         return checkouts.named("checkouts");
+    }
+
+    /** Every post of a confirmation link, whatever it answers, per client IP. */
+    RateLimit emailConfirmationLimit() {
+        return emailConfirmations.named("email-confirmations");
     }
 
     /** At most {@code requests} per {@code window}, a window being at least a second. */

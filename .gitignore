@@ -35,5 +35,6 @@ build/
 ### Local secrets, one file per property ###
 /secrets/
 
-### Local Compose settings; .env.example is the template ###
+### Compose settings, local and production; each .env.example is the template ###
 /.env
+/deploy/.env

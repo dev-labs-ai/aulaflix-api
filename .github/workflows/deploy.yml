@@ -1,0 +1,102 @@
+# Every push to main: the tests, then the API image, pushed to GHCR under the commit's tag, then the API alone redeployed
+# on the VPS (deploy/compose.yaml). The web deploys from its own repository, so a web change never redeploys the API.
+#
+# Repository secrets: MINIO_LICENSE, the AIStor Free license the tests' storage needs.
+# The production environment's secrets, which only this workflow's deploy job reads:
+#   VPS_HOST         the VPS's address
+#   VPS_USER         the user the deploy runs as, in the docker group, owning /srv/aulaflix/aulaflix-api/deploy/.env
+#   VPS_SSH_KEY      that user's private key, for this workflow alone
+#   VPS_KNOWN_HOSTS  the VPS's host keys, as ssh-keyscan prints them, checked before anything is sent
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# One deploy at a time, in push order; a newer push waits rather than cancelling one halfway
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/dev-labs-ai/aulaflix-api
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Put the AIStor license where the tests read it
+        env:
+          MINIO_LICENSE: ${{ secrets.MINIO_LICENSE }}
+        run: |
+          mkdir -p secrets
+          printf '%s' "$MINIO_LICENSE" > secrets/minio.license
+      - name: Test
+        run: ./mvnw --batch-mode verify
+
+  image:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The commit's full SHA is the tag, never moved and never latest, so .env on the VPS names exactly one build
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Trust the VPS's host keys and load the deploy key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/known_hosts ~/.ssh/deploy_key
+      # Pins the new tag in .env, so a later `docker compose up` by hand keeps it, then replaces the API container
+      # alone: postgres and the storage keep running, and storage-init runs again, which changes nothing
+      - name: Deploy the API
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          TAG: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes "$VPS_USER@$VPS_HOST" \
+            "set -eu
+             cd /srv/aulaflix/aulaflix-api/deploy
+             sed -i 's/^AULAFLIX_API_TAG=.*/AULAFLIX_API_TAG=$TAG/' .env
+             grep -qx 'AULAFLIX_API_TAG=$TAG' .env
+             docker compose pull api && docker compose up -d api"
+      - name: Forget the deploy key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

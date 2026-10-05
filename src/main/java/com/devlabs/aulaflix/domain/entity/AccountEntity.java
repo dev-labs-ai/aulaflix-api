@@ -98,4 +98,11 @@ public class AccountEntity {
     public void setAsaasCustomerId(String asaasCustomerId) {
         this.asaasCustomerId = asaasCustomerId;
     }
+
+    /** Records when the owner first proved the email theirs; a later proof changes nothing. */
+    public void confirmEmail(Instant at) {
+        if (emailConfirmedAt == null) {
+            emailConfirmedAt = at;
+        }
+    }
 }

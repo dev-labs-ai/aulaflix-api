@@ -70,6 +70,13 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void allowsEachClientIp30EmailConfirmationsAnHourByDefault() {
+        application.run(context -> assertThat(context).hasNotFailed()
+                .getBean(RateLimitProperties.class).extracting(RateLimitProperties::emailConfirmationLimit)
+                .isEqualTo(new RateLimit("email-confirmations", 30, Duration.ofHours(1))));
+    }
+
+    @Test
     void takesLowerLimitsFromConfiguration() {
         application.withPropertyValues("aulaflix.rate-limits.bff-requests.requests=5",
                         "aulaflix.rate-limits.bff-requests.window=10s",
@@ -92,7 +99,8 @@ class RateLimitPropertiesTest {
             "aulaflix.rate-limits.visitor-playback.requests=0", "aulaflix.rate-limits.visitor-playback.window=999ms",
             "aulaflix.rate-limits.look-ups-and-sign-ins.requests=0", "aulaflix.rate-limits.sign-ups.window=0s",
             "aulaflix.rate-limits.checkouts-per-student.requests=0", "aulaflix.rate-limits.checkouts-per-ip.window=0s",
-            "aulaflix.rate-limits.checkouts.requests=0"})
+            "aulaflix.rate-limits.checkouts.requests=0",
+            "aulaflix.rate-limits.email-confirmations.requests=0"})
     void refusesToStartWithALimitThatCountsNothing(String property) {
         application.withPropertyValues(property).run(context -> assertThat(context).hasFailed());
     }
