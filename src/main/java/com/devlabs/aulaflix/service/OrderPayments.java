@@ -115,18 +115,20 @@ class OrderPayments {
                     charge.id(), order.getCode());
             return WebhookEventState.UNPROCESSABLE;
         }
+        return applyTo(order, charge, rejectedByRiskAnalysis);
+    }
+
+    /**
+     * Applies what the Order's own charge shows: money going back, a payment, or, after an event said so, a card risk
+     * analysis rejected; anything else leaves the Order as it is.
+     */
+    private WebhookEventState applyTo(OrderEntity order, AsaasGateway.Charge charge, boolean rejectedByRiskAnalysis) {
         if (charge.moneyBack() && MONEY_TAKEN.contains(order.getStatus())) {
             followMoneyBack(order, charge);
             return WebhookEventState.PROCESSED;
         }
         if (!charge.deleted() && PAID.contains(charge.status())) {
-            if (order.pay(now())) {
-                if (order.getMethod() == PaymentMethod.CARD) {
-                    order.recordCardPayment(charge.id(), charge.installment(), charge.installments());
-                }
-                log.info("Order {} was paid", order.getCode());
-                grant(order);
-            }
+            pay(order, charge);
             return WebhookEventState.PROCESSED;
         }
         if (rejectedByRiskAnalysis && !charge.awaitingRiskAnalysis()) {
@@ -138,6 +140,18 @@ class OrderPayments {
         log.info("Asaas charge {} of Order {} is {}, so not paid", charge.id(), order.getCode(),
                 charge.deleted() ? "deleted" : charge.status());
         return WebhookEventState.IGNORED;
+    }
+
+    /** Pays the Order, keeping a card's charge, and grants what it buys, unless it was paid already. */
+    private void pay(OrderEntity order, AsaasGateway.Charge charge) {
+        if (!order.pay(now())) {
+            return;
+        }
+        if (order.getMethod() == PaymentMethod.CARD) {
+            order.recordCardPayment(charge.id(), charge.installment(), charge.installments());
+        }
+        log.info("Order {} was paid", order.getCode());
+        grant(order);
     }
 
     /**

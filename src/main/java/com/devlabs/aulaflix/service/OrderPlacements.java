@@ -72,35 +72,49 @@ class OrderPlacements {
         if (enrollments.isActivelyEnrolled(studentId, courseId)) {
             throw new AlreadyEnrolledException();
         }
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Optional<OrderEntity> awaiting =
                 orders.findByStudentAndCourseInStatus(studentId, courseId, OrderStatus.AWAITING_PAYMENT);
-        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
-        if (awaiting.isPresent() && !awaiting.get().getExpiresAt().isAfter(now)) {
-            return new Placement.Lapsed(OrderUpkeep.DueOrder.of(awaiting.get()),
-                    OrderViews.withPayment(awaiting.get()));
-        }
-        String customerId = student.getAsaasCustomerId();
-        boolean needsCpf = method == PaymentMethod.PIX && customerId == null;
         if (awaiting.isPresent()) {
-            if (needsCpf && awaiting.get().getMethod() != method) {
-                Cpf.requireValid(cpf);
-            }
-            return new Placement.Awaiting(OrderViews.withPayment(awaiting.get()));
+            return existing(awaiting.get(), student, method, cpf, now);
         }
+        return method == PaymentMethod.CARD ? placeCard(student, course, now) : placePix(student, course, cpf, now);
+    }
+
+    /** The Order already awaiting payment: lapsed past its {@code expiresAt}, or answered once the CPF is checked. */
+    private static Placement existing(OrderEntity awaiting, AccountEntity student, PaymentMethod method, String cpf,
+                                      Instant now) {
+        if (!awaiting.getExpiresAt().isAfter(now)) {
+            return new Placement.Lapsed(OrderUpkeep.DueOrder.of(awaiting), OrderViews.withPayment(awaiting));
+        }
+        if (needsCpf(student, method) && awaiting.getMethod() != method) {
+            Cpf.requireValid(cpf);
+        }
+        return new Placement.Awaiting(OrderViews.withPayment(awaiting));
+    }
+
+    private Placement placeCard(AccountEntity student, CourseEntity course, Instant now) {
+        OrderEntity order = orders.save(OrderEntity.card(OrderCodes.next(), student, course,
+                Pricing.of(course).pixDiscountPercent(), now, now.plus(CARD_LIFETIME)));
+        log.info("Student {} placed card Order {} for Course {}", student.getId(), order.getCode(), course.getId());
+        return new Placement.NewCard(order.getId(), order.getCode(), order.getAmountCents(), course.getTitle(),
+                course.getSlug(), course.getMaxInstallments());
+    }
+
+    private Placement placePix(AccountEntity student, CourseEntity course, String cpf, Instant now) {
+        Placement.Payer payer = needsCpf(student, PaymentMethod.PIX)
+                ? new Placement.NewCustomer(student.getName(), Cpf.requireValid(cpf))
+                : new Placement.Customer(student.getAsaasCustomerId());
         CoursePricing pricing = Pricing.of(course);
-        if (method == PaymentMethod.CARD) {
-            OrderEntity order = orders.save(OrderEntity.card(OrderCodes.next(), student, course,
-                    pricing.pixDiscountPercent(), now, now.plus(CARD_LIFETIME)));
-            log.info("Student {} placed card Order {} for Course {}", studentId, order.getCode(), courseId);
-            return new Placement.NewCard(order.getId(), order.getCode(), order.getAmountCents(), course.getTitle(),
-                    course.getSlug(), course.getMaxInstallments());
-        }
-        Placement.Payer payer = needsCpf ? new Placement.NewCustomer(student.getName(), Cpf.requireValid(cpf))
-                : new Placement.Customer(customerId);
         OrderEntity order = orders.save(OrderEntity.pix(OrderCodes.next(), student, course,
                 pricing.pixDiscountPercent(), pricing.pixPriceCents(), now, now.plus(PIX_LIFETIME)));
-        log.info("Student {} placed Pix Order {} for Course {}", studentId, order.getCode(), courseId);
+        log.info("Student {} placed Pix Order {} for Course {}", student.getId(), order.getCode(), course.getId());
         return new Placement.NewPix(order.getId(), order.getCode(), order.getAmountCents(), course.getTitle(), payer);
+    }
+
+    /** A Pix needs the CPF until the Student's first one made their Asaas customer. */
+    private static boolean needsCpf(AccountEntity student, PaymentMethod method) {
+        return method == PaymentMethod.PIX && student.getAsaasCustomerId() == null;
     }
 
     /** Keeps the Student's Asaas customer, unless another placement kept one first, whose id is answered instead. */

@@ -83,15 +83,25 @@ public class AsaasWebhookInbox {
         }
         String eventType = textOf(event.path("event"));
         if (HANDLED_CHECKOUT_EVENTS.contains(eventType)) {
-            String checkoutId = textOf(event.path("checkout").path("id"));
-            if (checkoutId == null || checkoutId.length() > MAX_CHECKOUT_ID_LENGTH) {
-                return Delivery.unprocessable(eventId, eventType, "no Checkout id in " + eventType);
-            }
-            return new Delivery(eventId, eventType, null, checkoutId, WebhookEventState.PENDING, null);
+            return checkoutEvent(eventId, eventType, event);
         }
         if (!HANDLED_EVENTS.contains(eventType)) {
             return new Delivery(eventId, eventType, null, null, WebhookEventState.IGNORED, null);
         }
+        return paymentEvent(eventId, eventType, event);
+    }
+
+    /** A Checkout event the worker handles, pending when it names its Checkout. */
+    private static Delivery checkoutEvent(String eventId, String eventType, JsonNode event) {
+        String checkoutId = textOf(event.path("checkout").path("id"));
+        if (checkoutId == null || checkoutId.length() > MAX_CHECKOUT_ID_LENGTH) {
+            return Delivery.unprocessable(eventId, eventType, "no Checkout id in " + eventType);
+        }
+        return new Delivery(eventId, eventType, null, checkoutId, WebhookEventState.PENDING, null);
+    }
+
+    /** A payment event the worker handles, pending when it names its charge. */
+    private static Delivery paymentEvent(String eventId, String eventType, JsonNode event) {
         String chargeId = textOf(event.path("payment").path("id"));
         if (chargeId == null || chargeId.length() > MAX_CHARGE_ID_LENGTH) {
             return Delivery.unprocessable(eventId, eventType, "no charge id in " + eventType);

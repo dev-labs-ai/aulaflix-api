@@ -55,29 +55,25 @@ class AdminOrderViews {
                 .toList(), found.getNumber(), found.getSize(), found.getTotalElements(), found.getTotalPages());
     }
 
+    /**
+     * Each line of the answer is one part of the Order: as its Student sees it, its Student and prices, the days since
+     * its payment and the Enrollment it granted, what Asaas holds for it, and its refund.
+     */
     private static AdminOrder view(OrderEntity order, EnrollmentEntity enrollment, Instant now) {
         CourseEntity course = order.getCourse();
-        return new AdminOrder(
-                order.getCode(),
-                order.getStatus(),
-                order.getMethod(),
-                new OrderedCourse(course.getId(), course.getSlug(), course.getTitle()),
-                order.getAmountCents(),
-                order.getCreatedAt(),
-                order.getPaidAt(),
-                order.isDuplicatePayment(),
-                summaryOf(order.getStudent()),
-                order.getListPriceCents(),
-                order.getPixDiscountPercent(),
-                order.getPaidAt() == null ? null : Duration.between(order.getPaidAt(), now).toDays(),
-                enrollment == null ? null : grantedView(enrollment),
-                order.getAsaasPaymentId(),
-                order.getInstallments(),
-                order.getAsaasCheckoutId(),
+        return new AdminOrder(order.getCode(), order.getStatus(), order.getMethod(),
+                new OrderedCourse(course.getId(), course.getSlug(), course.getTitle()), order.getAmountCents(),
+                order.getCreatedAt(), order.getPaidAt(), order.isDuplicatePayment(),
+                summaryOf(order.getStudent()), order.getListPriceCents(), order.getPixDiscountPercent(),
+                daysSincePayment(order, now), enrollment == null ? null : grantedView(enrollment),
+                order.getAsaasPaymentId(), order.getInstallments(), order.getAsaasCheckoutId(),
                 order.getAsaasInstallmentId(),
-                order.getRefundRequestedAt(),
-                summaryOf(order.getRefundRequestedBy()),
-                order.getRefundedAt());
+                order.getRefundRequestedAt(), summaryOf(order.getRefundRequestedBy()), order.getRefundedAt());
+    }
+
+    /** Whole days since the Order was paid, for the Admin to weigh the 7-day guarantee; none until it is. */
+    private static Long daysSincePayment(OrderEntity order, Instant now) {
+        return order.getPaidAt() == null ? null : Duration.between(order.getPaidAt(), now).toDays();
     }
 
     private static GrantedEnrollment grantedView(EnrollmentEntity enrollment) {

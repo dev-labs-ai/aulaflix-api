@@ -16,6 +16,31 @@ public class EmailTemplates {
 
     private static final Locale BRAZIL = Locale.of("pt", "BR");
 
+    /**
+     * The launch email's text: the Course's title and summary; its price, installments and Pix price; its page, under
+     * webBase; and the unsubscribe page, with the token after the {@code #}, which no server log records.
+     */
+    private static final String WAITLIST_LAUNCH_TEXT = """
+            Olá!
+
+            O curso %s, que você estava esperando, acaba de ser lançado na AulaFlix.
+
+            %s
+
+            Sai por %s no cartão, em até %dx de %s sem juros, ou %s no Pix.
+
+            Para conhecer o curso e comprar, abra:
+
+            %s/cursos/%s
+
+            Você recebeu este email porque entrou na lista de espera deste curso. Para sair de todas as listas \
+            de espera da AulaFlix, abra:
+
+            %s/cancelar-aviso#%s
+
+            Equipe AulaFlix
+            """;
+
     private final String webBase;
 
     public EmailTemplates(URI webBase) {
@@ -147,31 +172,22 @@ public class EmailTemplates {
     public OutboundEmail waitlistLaunch(String recipient, String courseTitle, String courseSummary, String courseSlug,
                                         CoursePricing pricing, String unsubscribeToken) {
         return new OutboundEmail(EmailTemplate.WAITLIST_LAUNCH, recipient,
-                "Lançamento: %s já está à venda".formatted(courseTitle), """
-                Olá!
+                "Lançamento: %s já está à venda".formatted(courseTitle),
+                launchText(courseTitle, courseSummary, courseSlug, pricing, unsubscribeToken),
+                oneClickUnsubscribe(unsubscribeToken));
+    }
 
-                O curso %s, que você estava esperando, acaba de ser lançado na AulaFlix.
+    private String launchText(String courseTitle, String courseSummary, String courseSlug, CoursePricing pricing,
+                              String unsubscribeToken) {
+        return WAITLIST_LAUNCH_TEXT.formatted(courseTitle, courseSummary, reais(pricing.priceCents()),
+                pricing.maxInstallments(), reais(pricing.installmentCents()), reais(pricing.pixPriceCents()), webBase,
+                courseSlug, webBase, unsubscribeToken);
+    }
 
-                %s
-
-                Sai por %s no cartão, em até %dx de %s sem juros, ou %s no Pix.
-
-                Para conhecer o curso e comprar, abra:
-
-                %s/cursos/%s
-
-                Você recebeu este email porque entrou na lista de espera deste curso. Para sair de todas as listas \
-                de espera da AulaFlix, abra:
-
-                %s/cancelar-aviso#%s
-
-                Equipe AulaFlix
-                """.formatted(courseTitle, courseSummary, reais(pricing.priceCents()), pricing.maxInstallments(),
-                reais(pricing.installmentCents()), reais(pricing.pixPriceCents()), webBase, courseSlug, webBase,
-                unsubscribeToken),
-                Map.of("List-Unsubscribe", "<%s/api/waitlist/unsubscribe?token=%s>".formatted(webBase,
-                                unsubscribeToken),
-                        "List-Unsubscribe-Post", "List-Unsubscribe=One-Click"));
+    /** RFC 8058's one-click unsubscribe, which a mail client posts to the web's URL without asking. */
+    private Map<String, String> oneClickUnsubscribe(String unsubscribeToken) {
+        return Map.of("List-Unsubscribe", "<%s/api/waitlist/unsubscribe?token=%s>".formatted(webBase, unsubscribeToken),
+                "List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
     }
 
     /** As Brazil writes money: {@code R$ 1.497,30}. */

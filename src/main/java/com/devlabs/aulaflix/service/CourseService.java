@@ -218,29 +218,14 @@ public class CourseService {
 
     /** The Waitlist's count shows only while the Course is Coming soon, the one state that takes entries. */
     private static AdminCourse adminView(CourseEntity course, long waitlistCount) {
-        return new AdminCourse(
-                course.getId(),
-                course.getSlug(),
-                course.getTitle(),
-                course.getSummary(),
-                course.getArea(),
-                course.getIcon(),
-                course.getTone(),
-                course.getAbout(),
-                course.getLearn(),
-                course.getAudience(),
-                course.getPlannedTopics(),
+        return new AdminCourse(course.getId(), course.getSlug(), course.getTitle(), course.getSummary(),
+                course.getArea(), course.getIcon(), course.getTone(),
+                course.getAbout(), course.getLearn(), course.getAudience(), course.getPlannedTopics(),
                 course.getFaq().stream().map(CourseService::faqEntry).toList(),
-                course.getPriceCents(),
-                course.getPixDiscountPercent(),
-                course.getMaxInstallments(),
-                course.getFreeLessonId(),
-                course.getStatus(),
-                readinessOf(course),
-                course.getStatus() == CourseStatus.COMING_SOON ? waitlistCount : null,
-                course.getNotifiedCount(),
-                course.getComingSoonAt(),
-                course.getOnSaleAt());
+                course.getPriceCents(), course.getPixDiscountPercent(), course.getMaxInstallments(),
+                course.getFreeLessonId(), course.getStatus(), readinessOf(course),
+                course.getStatus() == CourseStatus.COMING_SOON ? waitlistCount : null, course.getNotifiedCount(),
+                course.getComingSoonAt(), course.getOnSaleAt());
     }
 
     /** Only the states the Course can still move to, and none at all once it is On sale. */
