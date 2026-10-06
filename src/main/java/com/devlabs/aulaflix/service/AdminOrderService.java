@@ -60,15 +60,17 @@ public class AdminOrderService {
      * asking Asaas again. When Asaas refuses, or cannot be reached, nothing changes.
      */
     public AdminOrder refund(long adminId, String code) {
-        OrderRefunds.RefundStart start = refunds.refundable(code);
-        if (start.already() != null) {
-            return start.already();
-        }
+        return switch (refunds.refundable(code)) {
+            case OrderRefunds.RefundStart.Started started -> started.order();
+            case OrderRefunds.RefundStart.Refundable refundable -> refund(adminId, code, refundable);
+        };
+    }
+
+    private AdminOrder refund(long adminId, String code, OrderRefunds.RefundStart.Refundable start) {
         try {
-            if (start.installmentId() != null) {
-                asaas.refundInstallmentPlan(start.installmentId());
-            } else {
-                asaas.refundCharge(start.chargeId());
+            switch (start.payment()) {
+                case OrderRefunds.RefundStart.Charge charge -> asaas.refundCharge(charge.id());
+                case OrderRefunds.RefundStart.InstallmentPlan plan -> asaas.refundInstallmentPlan(plan.id());
             }
         } catch (AsaasUnavailableException failure) {
             throw new PaymentUnavailableException("Order %s not refunded".formatted(code), failure);

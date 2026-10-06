@@ -58,14 +58,15 @@ class OrderRefunds {
     RefundStart refundable(String code) {
         OrderEntity order = orders.findWithPartiesByCode(code).orElseThrow(OrderNotFoundException::new);
         if (order.getStatus() == OrderStatus.REFUNDING || order.getStatus() == OrderStatus.REFUNDED) {
-            return new RefundStart(views.view(order), order.getId(), order.getStudent().getId(),
-                    order.getAsaasPaymentId(), order.getAsaasInstallmentId());
+            return new RefundStart.Started(views.view(order));
         }
         if (order.getStatus() != OrderStatus.PAID) {
             throw new OrderNotPaidException();
         }
-        return new RefundStart(null, order.getId(), order.getStudent().getId(), order.getAsaasPaymentId(),
-                order.getAsaasInstallmentId());
+        RefundStart.Payment payment = order.getAsaasInstallmentId() == null
+                ? new RefundStart.Charge(order.getAsaasPaymentId())
+                : new RefundStart.InstallmentPlan(order.getAsaasInstallmentId());
+        return new RefundStart.Refundable(order.getId(), order.getStudent().getId(), payment);
     }
 
     /** Records the refund Asaas took at the Admin's request, and answers the Order as it now is. */
@@ -119,11 +120,26 @@ class OrderRefunds {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
-    /**
-     * Where a refund starts from: the Order's view when it is refunding or refunded already, and nothing is left to
-     * do; otherwise null, with the Order, its Student and the charge to refund, or, for a card paid in installments,
-     * the installment plan, whose refund takes every installment's charge.
-     */
-    record RefundStart(AdminOrder already, long orderId, long studentId, String chargeId, String installmentId) {
+    /** Where a refund starts from: an Order whose refund started already, or a paid one, with what to refund. */
+    sealed interface RefundStart {
+
+        /** The Order is refunding or refunded already, as its view shows: nothing is left to do. */
+        record Started(AdminOrder order) implements RefundStart {
+        }
+
+        /** The paid Order, its Student, and the payment to refund at Asaas. */
+        record Refundable(long orderId, long studentId, Payment payment) implements RefundStart {
+        }
+
+        /** What Asaas refunds: the charge of a single payment, or the installment plan of a card paid in parts. */
+        sealed interface Payment {
+        }
+
+        record Charge(String id) implements Payment {
+        }
+
+        /** Its refund takes every installment's charge. */
+        record InstallmentPlan(String id) implements Payment {
+        }
     }
 }
