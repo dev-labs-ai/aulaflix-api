@@ -77,12 +77,16 @@ public class AistorContainer extends GenericContainer<AistorContainer> {
 
     @Override
     protected void containerIsStarted(InspectContainerResponse containerInfo) {
+        ExecResult init = runInit();
+        if (init.getExitCode() != 0) {
+            throw new IllegalStateException("storage/init.sh failed: " + init.getStderr());
+        }
+    }
+
+    /** Runs {@code storage/init.sh} against the running server, as storage-init does on every {@code up}. */
+    public ExecResult runInit() {
         try {
-            ExecResult init = execInContainer("env", "STORAGE_URL=http://localhost:" + S3_PORT, "sh",
-                    "/storage/init.sh");
-            if (init.getExitCode() != 0) {
-                throw new IllegalStateException("storage/init.sh failed: " + init.getStderr());
-            }
+            return execInContainer("env", "STORAGE_URL=http://localhost:" + S3_PORT, "sh", "/storage/init.sh");
         } catch (IOException failure) {
             throw new IllegalStateException("storage/init.sh could not run", failure);
         } catch (InterruptedException interrupted) {
