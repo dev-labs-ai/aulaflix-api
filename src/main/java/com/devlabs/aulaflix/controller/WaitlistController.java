@@ -25,6 +25,9 @@ import com.devlabs.aulaflix.config.OpenApiConfiguration;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
 import com.devlabs.aulaflix.dto.WaitlistEntryRequest;
 import com.devlabs.aulaflix.dto.WaitlistUnsubscriptionRequest;
+import com.devlabs.aulaflix.exception.NotOnWaitlistException;
+import com.devlabs.aulaflix.exception.WaitlistClosedException;
+import com.devlabs.aulaflix.service.PathIds;
 import com.devlabs.aulaflix.service.WaitlistService;
 
 /**
@@ -59,7 +62,7 @@ public class WaitlistController {
     @Parameter(in = ParameterIn.HEADER, name = OpenApiConfiguration.CAPTCHA_TOKEN, schema = @Schema(type = "string"),
             description = "A Turnstile token, needed past 3 requests per IP in an hour")
     public ResponseEntity<Void> join(@Valid @RequestBody WaitlistEntryRequest request) {
-        waitlists.joinAsVisitor(request.courseId(), request.email());
+        waitlists.joinAsVisitor(PathIds.parse(request.courseId()), request.email());
         return ResponseEntity.noContent().build();
     }
 
@@ -89,7 +92,7 @@ public class WaitlistController {
             `not-on-waitlist`: no entry of the Course's Waitlist holds the Account's email, or no Course has the id""")
     public ResponseEntity<Void> check(@AuthenticationPrincipal AuthenticatedAccount student,
                                       @PathVariable String courseId) {
-        waitlists.requireOn(student.accountId(), courseId);
+        waitlists.requireOn(student.accountId(), PathIds.parse(courseId).orElseThrow(NotOnWaitlistException::new));
         return ResponseEntity.noContent().build();
     }
 
@@ -102,7 +105,8 @@ public class WaitlistController {
     @ApiResponse(responseCode = "409", description = WAITLIST_CLOSED)
     public ResponseEntity<Void> enter(@AuthenticationPrincipal AuthenticatedAccount student,
                                       @PathVariable String courseId) {
-        waitlists.joinAsStudent(student.accountId(), courseId);
+        waitlists.joinAsStudent(student.accountId(),
+                PathIds.parse(courseId).orElseThrow(WaitlistClosedException::new));
         return ResponseEntity.noContent().build();
     }
 
@@ -115,7 +119,7 @@ public class WaitlistController {
     @ApiResponse(responseCode = "204", description = "The Student is not on the Waitlist")
     public ResponseEntity<Void> leave(@AuthenticationPrincipal AuthenticatedAccount student,
                                       @PathVariable String courseId) {
-        waitlists.leave(student.accountId(), courseId);
+        PathIds.parse(courseId).ifPresent(course -> waitlists.leave(student.accountId(), course));
         return ResponseEntity.noContent().build();
     }
 }

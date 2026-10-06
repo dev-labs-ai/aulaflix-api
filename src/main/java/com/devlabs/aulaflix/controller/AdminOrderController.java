@@ -1,6 +1,7 @@
 package com.devlabs.aulaflix.controller;
 
 import java.util.List;
+import java.util.Optional;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -30,6 +31,7 @@ import com.devlabs.aulaflix.config.OpenApiConfiguration;
 import com.devlabs.aulaflix.domain.OrderStatus;
 import com.devlabs.aulaflix.dto.AdminOrder;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
+import com.devlabs.aulaflix.dto.OrderSearch;
 import com.devlabs.aulaflix.dto.PageResponse;
 import com.devlabs.aulaflix.exception.QueryParametersNotAllowedException;
 import com.devlabs.aulaflix.service.AdminOrderService;
@@ -83,7 +85,13 @@ public class AdminOrderController {
         if (!LIST_PARAMETERS.containsAll(request.getParameterMap().keySet())) {
             throw new QueryParametersNotAllowedException(LIST_PARAMETERS);
         }
-        return orders.list(status, courseId, email, duplicatePayment, page);
+        OrderSearch search = new OrderSearch(QueryFilters.constant("status", status, OrderStatus.class),
+                QueryFilters.id(courseId), Optional.ofNullable(email),
+                QueryFilters.trueOrFalse("duplicatePayment", duplicatePayment));
+        if (QueryFilters.matchesNothing(courseId)) {
+            return PageResponse.empty(page.getPageNumber(), page.getPageSize());
+        }
+        return orders.list(search, page);
     }
 
     @GetMapping("/{code}")

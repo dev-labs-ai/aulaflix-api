@@ -1,21 +1,15 @@
 package com.devlabs.aulaflix.service;
 
-import java.util.List;
-import java.util.Optional;
-
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.devlabs.aulaflix.domain.OrderStatus;
 import com.devlabs.aulaflix.dto.AdminOrder;
+import com.devlabs.aulaflix.dto.OrderSearch;
 import com.devlabs.aulaflix.dto.PageResponse;
 import com.devlabs.aulaflix.exception.AsaasRefusedException;
 import com.devlabs.aulaflix.exception.AsaasUnavailableException;
-import com.devlabs.aulaflix.exception.FieldViolation;
-import com.devlabs.aulaflix.exception.InvalidRequestException;
 import com.devlabs.aulaflix.exception.OrderNotFoundException;
 import com.devlabs.aulaflix.exception.PaymentUnavailableException;
 import com.devlabs.aulaflix.exception.RefundRefusedException;
@@ -28,8 +22,6 @@ import com.devlabs.aulaflix.repository.OrderRepository;
  */
 @Service
 public class AdminOrderService {
-
-    private static final String INVALID_FORMAT = "invalid-format";
 
     private final OrderRepository repository;
     private final AdminOrderViews views;
@@ -45,23 +37,15 @@ public class AdminOrderService {
     }
 
     /**
-     * Every state, newest first. Each filter is optional: the status; the Course's id, of any shape, which matches
-     * nothing unless some Course could have it; the Student's email, matched trimmed and lower-cased; and whether the
-     * Order is a Duplicate payment, {@code true} or {@code false}. Only the page and its size are taken from the
-     * request: the order is fixed.
+     * Every state, newest first, matching every filter given; the Student's email is matched trimmed and lower-cased.
+     * Only the page and its size are taken from the request: the order is fixed.
      */
     @Transactional(readOnly = true)
-    public PageResponse<AdminOrder> list(String status, String courseId, String email, String duplicatePayment,
-                                         Pageable pageable) {
-        OrderStatus onlyStatus = parseStatus(status);
-        Boolean onlyDuplicates = parseBoolean("duplicatePayment", duplicatePayment);
+    public PageResponse<AdminOrder> list(OrderSearch search, Pageable pageable) {
         Pageable page = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
-        Optional<Long> course = Optional.ofNullable(courseId).flatMap(PathIds::parse);
-        if (courseId != null && course.isEmpty()) {
-            return views.page(Page.empty(page));
-        }
-        String student = email == null ? null : AccountInputRules.normalizeEmail(email);
-        return views.page(repository.search(onlyStatus, course.orElse(null), student, onlyDuplicates, page));
+        return views.page(repository.search(search.status().orElse(null), search.courseId().orElse(null),
+                search.email().map(AccountInputRules::normalizeEmail).orElse(null),
+                search.duplicatePayment().orElse(null), page));
     }
 
     /** Any Order, by its code, in any state. */
@@ -92,29 +76,5 @@ public class AdminOrderService {
             throw new RefundRefusedException(code, refusal);
         }
         return refunds.requested(adminId, start.orderId(), start.studentId());
-    }
-
-    /** One of the statuses, by its name, or no filter at all. */
-    private static OrderStatus parseStatus(String status) {
-        if (status == null) {
-            return null;
-        }
-        try {
-            return OrderStatus.valueOf(status);
-        } catch (IllegalArgumentException unknown) {
-            throw new InvalidRequestException(List.of(new FieldViolation("status", INVALID_FORMAT)));
-        }
-    }
-
-    /** Only {@code true} or {@code false}, or no filter at all. */
-    private static Boolean parseBoolean(String field, String value) {
-        if (value == null) {
-            return null;
-        }
-        return switch (value) {
-            case "true" -> true;
-            case "false" -> false;
-            default -> throw new InvalidRequestException(List.of(new FieldViolation(field, INVALID_FORMAT)));
-        };
     }
 }

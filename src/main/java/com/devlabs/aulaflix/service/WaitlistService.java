@@ -55,34 +55,33 @@ public class WaitlistService {
     }
 
     /**
-     * A Visitor joins with an email, which is checked once normalized, before the Course. The Course's id is taken as
-     * the body carries it, so that an id of any shape answers like an unknown one.
+     * A Visitor joins with an email, which is checked once normalized, before the Course: none when the request's id is
+     * of a shape no Course could have, which answers like an unknown one.
      */
     @Transactional
-    public void joinAsVisitor(String courseId, String email) {
+    public void joinAsVisitor(Optional<Long> courseId, String email) {
         String normalizedEmail = AccountInputRules.normalizeEmail(email);
         AccountInputRules.requireValid(AccountInputRules.emailViolations(normalizedEmail));
-        add(PathIds.parse(courseId).orElseThrow(WaitlistClosedException::new), normalizedEmail);
+        add(courseId.orElseThrow(WaitlistClosedException::new), normalizedEmail);
     }
 
     /** The Student joins with the Account's email. */
     @Transactional
-    public void joinAsStudent(long studentId, String courseId) {
-        add(PathIds.parse(courseId).orElseThrow(WaitlistClosedException::new), emailOf(studentId));
+    public void joinAsStudent(long studentId, long courseId) {
+        add(courseId, emailOf(studentId));
     }
 
     @Transactional(readOnly = true)
-    public void requireOn(long studentId, String courseId) {
-        Optional<Long> course = PathIds.parse(courseId);
-        if (course.isEmpty() || !entries.existsByCourseIdAndEmail(course.get(), emailOf(studentId))) {
+    public void requireOn(long studentId, long courseId) {
+        if (!entries.existsByCourseIdAndEmail(courseId, emailOf(studentId))) {
             throw new NotOnWaitlistException();
         }
     }
 
     /** Leaving a Waitlist the Student is not on, or a Course that does not exist, changes nothing. */
     @Transactional
-    public void leave(long studentId, String courseId) {
-        PathIds.parse(courseId).ifPresent(course -> entries.deleteByCourseIdAndEmail(course, emailOf(studentId)));
+    public void leave(long studentId, long courseId) {
+        entries.deleteByCourseIdAndEmail(courseId, emailOf(studentId));
     }
 
     /**
