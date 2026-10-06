@@ -90,6 +90,7 @@ public class EnrollmentService {
      */
     @Transactional
     public AdminEnrollment grantManually(long adminId, ManualEnrollmentRequest request) {
+        String note = EnrollmentNotes.trimmed(request.note());
         AccountEntity student = accounts
                 .findLockedByEmailAndRole(AccountInputRules.normalizeEmail(request.email()), Role.STUDENT)
                 .orElseThrow(StudentAccountRequiredException::new);
@@ -97,8 +98,7 @@ public class EnrollmentService {
                 .filter(found -> found.getStatus() != CourseStatus.DRAFT)
                 .orElseThrow(CourseNotEnrollableException::new);
         AccountEntity admin = accounts.findById(adminId).orElseThrow();
-        EnrollmentEntity enrollment = start(EnrollmentEntity.grantedManually(student, course, now(), admin,
-                request.note().strip()));
+        EnrollmentEntity enrollment = start(EnrollmentEntity.grantedManually(student, course, now(), admin, note));
         log.info("Admin {} granted Enrollment {} to Student {} in Course {}", adminId, enrollment.getId(),
                 student.getId(), course.getId());
         return adminView(enrollment);
@@ -164,6 +164,7 @@ public class EnrollmentService {
         if (change.status() != EnrollmentStatus.ENDED) {
             throw new InvalidRequestException(List.of(new FieldViolation("status", "invalid-format")));
         }
+        String note = EnrollmentNotes.trimmed(change.note());
         EnrollmentEntity enrollment = PathIds.parse(enrollmentId).flatMap(repository::findLockedById)
                 .orElseThrow(EnrollmentNotFoundException::new);
         if (enrollment.getOrigin() == EnrollmentOrigin.ORDER) {
@@ -172,7 +173,7 @@ public class EnrollmentService {
         if (!enrollment.isActive()) {
             return adminView(enrollment);
         }
-        enrollment.endManually(now(), accounts.findById(adminId).orElseThrow(), change.note().strip());
+        enrollment.endManually(now(), accounts.findById(adminId).orElseThrow(), note);
         log.info("Admin {} ended Enrollment {}", adminId, enrollment.getId());
         return adminView(enrollment);
     }

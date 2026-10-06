@@ -159,9 +159,9 @@ state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes its 
 ## Granting Enrollments by hand
 
 `POST /v1/admin/enrollments` `{ "email": …, "courseId": …, "note": … }` gives a Student every published Lesson of a
-Course, for example after a chargeback won in the Asaas UI, or as a courtesy. The note, up to 500 characters, is
-required: it is the only record of why. The email must be a Student's: one with no Account, or an Admin's, gets 409
-`student-account-required`, and the person signs up first. A Draft or unknown Course, a `courseId` of any shape
+Course, for example after a chargeback won in the Asaas UI, or as a courtesy. The note, up to 500 characters counted
+once it is trimmed, is required: it is the only record of why. The email must be a Student's: one with no Account, or
+an Admin's, gets 409 `student-account-required`, and the person signs up first. A Draft or unknown Course, a `courseId` of any shape
 included, gets 409 `course-not-enrollable`, and a Student who already has an active Enrollment in the Course gets 409
 `already-enrolled`. A Coming soon Course takes Enrollments too; its Lessons play from the launch. No email is sent:
 tell the Student.

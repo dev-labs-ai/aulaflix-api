@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigInteger;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -240,6 +241,49 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
                 .bodyJson().extractingPath("$.grantNote").isEqualTo("é".repeat(500));
     }
 
+    /** The limit counts characters, as the web does, not UTF-16 units: an emoji is one. */
+    @Test
+    void takesANoteOf500CharactersOutsideTheBasicPlane() {
+        long course = courses.onSale(newSlug());
+        String email = StudentApi.newEmail();
+        new StudentApi(bff).signedUp(email, PASSWORD);
+
+        assertThat(enrollments.grant(email, course, "😀".repeat(500))).hasStatus(HttpStatus.CREATED)
+                .bodyJson().extractingPath("$.grantNote").isEqualTo("😀".repeat(500));
+    }
+
+    /** The note is trimmed first, so the whitespace around it does not count. */
+    @Test
+    void takesANoteOf500CharactersOnceTrimmed() {
+        long course = courses.onSale(newSlug());
+        String email = StudentApi.newEmail();
+        new StudentApi(bff).signedUp(email, PASSWORD);
+
+        assertThat(enrollments.grant(email, course, "  " + "a".repeat(500) + "\n")).hasStatus(HttpStatus.CREATED)
+                .bodyJson().extractingPath("$.grantNote").isEqualTo("a".repeat(500));
+    }
+
+    @Test
+    void refusesANoteOf501CharactersOutsideTheBasicPlane() {
+        long course = courses.onSale(newSlug());
+        String email = StudentApi.newEmail();
+        new StudentApi(bff).signedUp(email, PASSWORD);
+
+        assertThat(enrollments.grant(email, course, "😀".repeat(501))).hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson().extractingPath("$.errors").isEqualTo(List.of(Map.of("field", "note", "code", "too-long")));
+    }
+
+    @Test
+    void endsWithANoteOf500CharactersOutsideTheBasicPlaneOnceTrimmed() {
+        long course = courses.onSale(newSlug());
+        String email = StudentApi.newEmail();
+        new StudentApi(bff).signedUp(email, PASSWORD);
+        long id = enrollments.granted(email, course);
+
+        assertThat(enrollments.end(id, " " + "😀".repeat(500) + " ")).hasStatusOk()
+                .bodyJson().extractingPath("$.endNote").isEqualTo("😀".repeat(500));
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidGrants")
     void refusesAnInvalidFieldWithItsCode(String description, Map<String, Object> body, String field, String code) {
@@ -389,6 +433,8 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
                 Arguments.of("no note", "ENDED", null, "note", "required"),
                 Arguments.of("blank note", "ENDED", "   ", "note", "required"),
                 Arguments.of("note of 501 characters", "ENDED", "a".repeat(501), "note", "too-long"),
+                Arguments.of("note of 501 characters outside the basic plane", "ENDED", "😀".repeat(501), "note",
+                        "too-long"),
                 Arguments.of("no status", null, NOTE, "status", "required"),
                 Arguments.of("unknown status", "PAUSED", NOTE, "status", "invalid-format"),
                 Arguments.of("status other than ENDED", "ACTIVE", NOTE, "status", "invalid-format"));

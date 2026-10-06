@@ -2,7 +2,6 @@ package com.devlabs.aulaflix.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -21,10 +20,10 @@ public record ManualEnrollmentRequest(
         String courseId,
 
         @NotBlank(message = "required")
-        @Size(max = NOTE_MAX_CHARACTERS, message = "too-long")
-        @Schema(description = "Why: the only record of it. Trimmed; at most 500 characters.",
-                example = "Chargeback ganho no pedido K7M2Q9XA.")
+        @Schema(description = "Why: the only record of it. Trimmed; at most 500 characters once trimmed.",
+                maxLength = NOTE_MAX_CHARACTERS, example = "Chargeback ganho no pedido K7M2Q9XA.")
         String note) {
 
+    /** Counted in characters once the note is trimmed, which the service does: a size check here would do neither. */
     public static final int NOTE_MAX_CHARACTERS = 500;
 }
