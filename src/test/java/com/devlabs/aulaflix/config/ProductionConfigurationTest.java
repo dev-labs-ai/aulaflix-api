@@ -43,6 +43,13 @@ class ProductionConfigurationTest {
         });
     }
 
+    /** observability-logging: production writes structured logs, one JSON object a line. */
+    @Test
+    void logsOneJsonObjectALineInElasticCommonSchema() {
+        production.run(context -> assertThat(context.getEnvironment().getProperty("logging.structured.format.console"))
+                .isEqualTo("ecs"));
+    }
+
     @Test
     void connectsToThePostgresBesideIt() {
         production.run(context -> assertThat(context.getEnvironment().getProperty("spring.datasource.url"))
