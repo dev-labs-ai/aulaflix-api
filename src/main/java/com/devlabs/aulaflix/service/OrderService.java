@@ -6,6 +6,8 @@ import java.time.ZoneId;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -140,20 +142,85 @@ public class OrderService {
      * Checkout made all the same, under a call that timed out, has a link no one got, and expires on its own.
      */
     private Order checkout(OrderPlacements.Placement.NewCard placement) {
+        AsaasGateway.Checkout checkout = atAsaas(placement.code(), () -> asaas.createCardCheckout(
+                new AsaasGateway.CardCheckout(placement.code(), placement.courseTitle(),
+                        description(placement.code(), placement.courseTitle()), placement.amountCents(),
+                        placement.maxInstallments(), OrderPlacements.CARD_LIFETIME,
+                        returns.after(placement.courseSlug(), placement.code()),
+                        returns.afterCancelling(placement.courseSlug(), placement.code()))),
+                () -> placements.cancel(placement.orderId(), false));
+        return placements.recordCheckout(placement.orderId(), checkout);
+    }
+
+    /**
+     * Makes the Pix Order's charge, and the Student's Asaas customer first when it is their first Pix. When Asaas fails
+     * a step, the Order is cancelled, with whatever that step may have left at Asaas.
+     */
+    private Order charge(long studentId, OrderPlacements.Placement.NewPix placement) {
+        String customerId = customerOf(studentId, placement);
+        String chargeId = atAsaas(placement.code(), () -> asaas.createPixCharge(customerId, placement.amountCents(),
+                        LocalDate.now(clock.withZone(ASAAS_ZONE)), placement.code(),
+                        description(placement.code(), placement.courseTitle())),
+                () -> cancelLeavingACharge(placement,
+                        () -> asaas.chargesUnder(placement.code()).forEach(asaas::deleteCharge)));
+        AsaasGateway.PixQrCode qrCode = atAsaas(placement.code(), () -> asaas.pixQrCode(chargeId),
+                () -> cancelLeavingACharge(placement, () -> {
+                    asaas.deleteCharge(chargeId);
+                    placements.chargesDeleted(placement.orderId());
+                }));
+        return placements.recordPixCharge(placement.orderId(), chargeId, qrCode);
+    }
+
+    /**
+     * The Student's Asaas customer: the one an earlier Pix made, or a new one with the CPF, which Asaas may refuse as
+     * the Student's mistake to fix.
+     */
+    private String customerOf(long studentId, OrderPlacements.Placement.NewPix placement) {
+        return switch (placement.payer()) {
+            case OrderPlacements.Placement.Customer customer -> customer.id();
+            case OrderPlacements.Placement.NewCustomer customer -> atAsaas(placement.code(),
+                    () -> placements.recordCustomer(studentId, asaas.createCustomer(customer.name(), customer.cpf())),
+                    () -> placements.cancel(placement.orderId(), false),
+                    refusal -> refusal.refusedTheCpf()
+                            ? new InvalidRequestException(List.of(new FieldViolation("cpf", "invalid-cpf")))
+                            : new PaymentProviderErrorException(cancelled(placement.code()), refusal));
+        };
+    }
+
+    /**
+     * One step of a placement at Asaas. When Asaas fails it, what the placement left is undone, the Order cancelled
+     * first, and the failure answered as a payment problem.
+     */
+    private static <T> T atAsaas(String code, Supplier<T> call, Runnable undo) {
+        return atAsaas(code, call, undo, refusal -> new PaymentProviderErrorException(cancelled(code), refusal));
+    }
+
+    private static <T> T atAsaas(String code, Supplier<T> call, Runnable undo,
+                                 Function<AsaasRefusedException, RuntimeException> refused) {
         try {
-            AsaasGateway.Checkout checkout = asaas.createCardCheckout(new AsaasGateway.CardCheckout(placement.code(),
-                    placement.courseTitle(), description(placement.code(), placement.courseTitle()),
-                    placement.amountCents(),
-                    placement.maxInstallments(), OrderPlacements.CARD_LIFETIME,
-                    returns.after(placement.courseSlug(), placement.code()),
-                    returns.afterCancelling(placement.courseSlug(), placement.code())));
-            return placements.recordCheckout(placement.orderId(), checkout);
+            return call.get();
         } catch (AsaasUnavailableException failure) {
-            placements.cancel(placement.orderId(), false);
-            throw new PaymentUnavailableException(cancelled(placement.code()), failure);
+            undo.run();
+            throw new PaymentUnavailableException(cancelled(code), failure);
         } catch (AsaasRefusedException refusal) {
-            placements.cancel(placement.orderId(), false);
-            throw new PaymentProviderErrorException(cancelled(placement.code()), refusal);
+            undo.run();
+            throw refused.apply(refusal);
+        }
+    }
+
+    /**
+     * Cancels the Order once a charge was asked for, keeping it to delete, and deletes the charge Asaas made for it:
+     * by its id, or, when its id never came back, any charge made under the Order's code, since a timeout may hide one
+     * that was made. Only a deletion by the charge's id settles it; reconciliation searches the code again once a
+     * charge whose creation timed out would have reached Asaas, and deletes what a failed deletion left.
+     */
+    private void cancelLeavingACharge(OrderPlacements.Placement.NewPix placement, Runnable deletion) {
+        placements.cancel(placement.orderId(), true);
+        try {
+            deletion.run();
+        } catch (AsaasUnavailableException | AsaasRefusedException failure) {
+            log.warn("Left the charges of cancelled Order {} to reconciliation: {}", placement.code(),
+                    failure.getMessage());
         }
     }
 
@@ -163,62 +230,5 @@ public class OrderService {
 
     private static String description(String code, String courseTitle) {
         return "Pedido %s: %s".formatted(code, courseTitle);
-    }
-
-    private Order charge(long studentId, OrderPlacements.Placement.NewPix placement) {
-        Charging charging = new Charging();
-        try {
-            String customerId = switch (placement.payer()) {
-                case OrderPlacements.Placement.Customer customer -> customer.id();
-                case OrderPlacements.Placement.NewCustomer customer -> placements.recordCustomer(studentId,
-                        asaas.createCustomer(customer.name(), customer.cpf()));
-            };
-            charging.started = true;
-            charging.chargeId = asaas.createPixCharge(customerId, placement.amountCents(),
-                    LocalDate.now(clock.withZone(ASAAS_ZONE)), placement.code(),
-                    description(placement.code(), placement.courseTitle()));
-            return placements.recordPixCharge(placement.orderId(), charging.chargeId,
-                    asaas.pixQrCode(charging.chargeId));
-        } catch (AsaasUnavailableException failure) {
-            cancel(placement, charging);
-            throw new PaymentUnavailableException(cancelled(placement.code()), failure);
-        } catch (AsaasRefusedException refusal) {
-            cancel(placement, charging);
-            if (!charging.started && refusal.refusedTheCpf()) {
-                throw new InvalidRequestException(List.of(new FieldViolation("cpf", "invalid-cpf")));
-            }
-            throw new PaymentProviderErrorException(cancelled(placement.code()), refusal);
-        }
-    }
-
-    /**
-     * Cancels the Order, and deletes the charge Asaas made for it, or, when its id never came back, any charge made
-     * under the Order's code: a timeout may hide one that was made. Only a deletion by the charge's id settles it;
-     * reconciliation searches the code again once a charge whose creation timed out would have reached Asaas, and
-     * deletes what a failed deletion left.
-     */
-    private void cancel(OrderPlacements.Placement.NewPix placement, Charging charging) {
-        placements.cancel(placement.orderId(), charging.started);
-        if (!charging.started) {
-            return;
-        }
-        try {
-            if (charging.chargeId != null) {
-                asaas.deleteCharge(charging.chargeId);
-                placements.chargesDeleted(placement.orderId());
-            } else {
-                asaas.chargesUnder(placement.code()).forEach(asaas::deleteCharge);
-            }
-        } catch (AsaasUnavailableException | AsaasRefusedException failure) {
-            log.warn("Left the charges of cancelled Order {} to reconciliation: {}", placement.code(),
-                    failure.getMessage());
-        }
-    }
-
-    /** How far a placement got at Asaas: whether a charge was asked for, and its id once Asaas gave one. */
-    private static final class Charging {
-
-        private boolean started;
-        private String chargeId;
     }
 }
