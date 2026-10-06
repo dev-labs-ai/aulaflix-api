@@ -27,6 +27,7 @@ import com.devlabs.aulaflix.domain.entity.Role;
 import com.devlabs.aulaflix.dto.AccountSummary;
 import com.devlabs.aulaflix.dto.AdminEnrollment;
 import com.devlabs.aulaflix.dto.CourseSummary;
+import com.devlabs.aulaflix.dto.EnrollmentSearch;
 import com.devlabs.aulaflix.dto.EnrollmentStatusChange;
 import com.devlabs.aulaflix.dto.ManualEnrollmentRequest;
 import com.devlabs.aulaflix.dto.PageResponse;
@@ -129,20 +130,14 @@ public class EnrollmentService {
     }
 
     /**
-     * Newest first. Each filter is optional: the Student's email, matched trimmed and lower-cased; the Course's id, of
-     * any shape, which matches nothing unless some Course could have it; and whether the Enrollment is active,
-     * {@code true} or {@code false}. Only the page and its size are taken from the request: the order is fixed.
+     * Newest first, matching every filter given; the Student's email is matched trimmed and lower-cased. Only the page
+     * and its size are taken from the request: the order is fixed.
      */
     @Transactional(readOnly = true)
-    public PageResponse<AdminEnrollment> list(String email, String courseId, String active, Pageable pageable) {
-        Boolean onlyActive = parseActive(active);
+    public PageResponse<AdminEnrollment> list(EnrollmentSearch search, Pageable pageable) {
         Pageable page = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
-        Optional<Long> course = Optional.ofNullable(courseId).flatMap(PathIds::parse);
-        if (courseId != null && course.isEmpty()) {
-            return pageOf(Page.empty(page));
-        }
-        String student = email == null ? null : AccountInputRules.normalizeEmail(email);
-        return pageOf(repository.search(student, course.orElse(null), onlyActive, page));
+        return pageOf(repository.search(search.email().map(AccountInputRules::normalizeEmail).orElse(null),
+                search.courseId().orElse(null), search.active().orElse(null), page));
     }
 
     /** Takes the id as the path carries it, so that an id of any shape answers like an unknown one. */
@@ -189,18 +184,6 @@ public class EnrollmentService {
     /** Cut to the microseconds PostgreSQL keeps, so that an answer shows what every later read will. */
     private Instant now() {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
-    }
-
-    /** Only {@code true} or {@code false}, or no filter at all. */
-    private static Boolean parseActive(String active) {
-        if (active == null) {
-            return null;
-        }
-        return switch (active) {
-            case "true" -> true;
-            case "false" -> false;
-            default -> throw new InvalidRequestException(List.of(new FieldViolation("active", "invalid-format")));
-        };
     }
 
     private static PageResponse<AdminEnrollment> pageOf(Page<EnrollmentEntity> found) {

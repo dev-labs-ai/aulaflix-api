@@ -2,6 +2,7 @@ package com.devlabs.aulaflix.controller;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Optional;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -32,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.devlabs.aulaflix.config.OpenApiConfiguration;
 import com.devlabs.aulaflix.dto.AdminEnrollment;
 import com.devlabs.aulaflix.dto.AuthenticatedAccount;
+import com.devlabs.aulaflix.dto.EnrollmentSearch;
 import com.devlabs.aulaflix.dto.EnrollmentStatusChange;
 import com.devlabs.aulaflix.dto.ManualEnrollmentRequest;
 import com.devlabs.aulaflix.dto.PageResponse;
@@ -103,7 +105,12 @@ public class AdminEnrollmentController {
         if (!LIST_PARAMETERS.containsAll(request.getParameterMap().keySet())) {
             throw new QueryParametersNotAllowedException(LIST_PARAMETERS);
         }
-        return enrollments.list(email, courseId, active, page);
+        EnrollmentSearch search = new EnrollmentSearch(Optional.ofNullable(email), QueryFilters.id(courseId),
+                QueryFilters.trueOrFalse("active", active));
+        if (QueryFilters.matchesNothing(courseId)) {
+            return PageResponse.empty(page.getPageNumber(), page.getPageSize());
+        }
+        return enrollments.list(search, page);
     }
 
     @GetMapping("/{enrollmentId}")
