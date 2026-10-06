@@ -3,13 +3,16 @@ package com.devlabs.aulaflix.controller;
 import static com.devlabs.aulaflix.AdminCourses.newSlug;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -274,13 +277,20 @@ class ResumeLessonControllerTest extends IntegrationTest {
     }
 
     @Test
-    void refusesAVisitWithoutALessonIdOrWithOneThatIsNotANumber() {
+    void refusesAVisitWithoutALessonId() {
         LearningApi learning = enrolledStudent(onSaleCourse(newSlug()).id());
 
         assertInvalidLessonId(learning.visitWith("{}"), "required");
         assertInvalidLessonId(learning.visitWith("{\"lessonId\": null}"), "required");
-        assertInvalidLessonId(learning.visit("abc"), "invalid-format");
-        assertInvalidLessonId(learning.visit(1.5), "invalid-format");
+    }
+
+    /** As in a path: an id of any shape answers like an unknown one. */
+    @ParameterizedTest
+    @MethodSource("idsOfAnyShape")
+    void answersALessonIdOfAnyShapeLikeAnUnknownLesson(Object lessonId) {
+        LearningApi learning = enrolledStudent(onSaleCourse(newSlug()).id());
+
+        assertLessonNotFound(learning.visit(lessonId));
     }
 
     @Test
@@ -331,6 +341,11 @@ class ResumeLessonControllerTest extends IntegrationTest {
         assertThat(result).hasStatusOk();
         List<Number> ids = JsonPath.read(AdminApi.body(result), "$.items[*].course.id");
         return ids.stream().map(Number::longValue).toList();
+    }
+
+    /** Every shape a body's id may come in but a sequence's: none is a Course, or a Lesson, so none answers 400. */
+    static Stream<Object> idsOfAnyShape() {
+        return Stream.of("abc", "", "007", 1.5, 0, -1, new BigInteger("99999999999999999999"));
     }
 
     private void assertLessonNotFound(MvcTestResult result) {

@@ -18,6 +18,7 @@ import com.devlabs.aulaflix.dto.Order;
 import com.devlabs.aulaflix.dto.OrderList;
 import com.devlabs.aulaflix.dto.OrderRequest;
 import com.devlabs.aulaflix.dto.PlacedOrder;
+import com.devlabs.aulaflix.exception.CourseNotForSaleException;
 import com.devlabs.aulaflix.exception.FieldViolation;
 import com.devlabs.aulaflix.exception.InvalidRequestException;
 import com.devlabs.aulaflix.exception.OrderNotFoundException;
@@ -71,16 +72,17 @@ public class OrderService {
      * makes nothing new at Asaas. One awaiting payment by the other method is cancelled first, at Asaas too; when Asaas
      * fails it stays awaiting, and nothing is placed. A Pix is a charge; a Student's first Pix makes their Asaas
      * customer with the CPF, which is never stored. A card is paid on an Asaas Checkout. Every placement counts against
-     * the Student's limit and everyone's, whatever it answers.
+     * the Student's limit and everyone's, whatever it answers. A Course id of any shape answers like an unknown one.
      */
     public PlacedOrder place(long studentId, OrderRequest request) {
         limiter.consume(limits.perStudent(), RateLimitKey.student(studentId));
         limiter.consume(limits.everyone(), RateLimitKey.everyone());
-        OrderPlacements.Placement placement = openExpiringALapsedOrder(studentId, request);
+        long courseId = PathIds.parse(request.courseId()).orElseThrow(CourseNotForSaleException::new);
+        OrderPlacements.Placement placement = openExpiringALapsedOrder(studentId, courseId, request);
         if (placement instanceof OrderPlacements.Placement.Existing existing
                 && existing.order().method() != request.method()) {
             cancellations.replace(studentId, existing.order().code());
-            placement = placements.open(studentId, request.courseId(), request.method(), request.cpf());
+            placement = placements.open(studentId, courseId, request.method(), request.cpf());
         }
         return switch (placement) {
             case OrderPlacements.Placement.Existing existing -> new PlacedOrder(existing.order(), false);
@@ -94,9 +96,8 @@ public class OrderService {
      * have, and the placement opens again. That Order is answered after all only when it stays awaiting: Asaas holds
      * its card for risk analysis. When Asaas cannot be reached, the Order stays as it was, and nothing is placed.
      */
-    private OrderPlacements.Placement openExpiringALapsedOrder(long studentId, OrderRequest request) {
-        OrderPlacements.Placement placement = placements.open(studentId, request.courseId(), request.method(),
-                request.cpf());
+    private OrderPlacements.Placement openExpiringALapsedOrder(long studentId, long courseId, OrderRequest request) {
+        OrderPlacements.Placement placement = placements.open(studentId, courseId, request.method(), request.cpf());
         if (!(placement instanceof OrderPlacements.Placement.Lapsed lapsed)) {
             return placement;
         }
@@ -106,7 +107,7 @@ public class OrderService {
             throw new PaymentUnavailableException("Order %s left awaiting payment; %s".formatted(
                     lapsed.order().code(), failure.getMessage()), failure.retryAfter());
         }
-        return placements.open(studentId, request.courseId(), request.method(), request.cpf());
+        return placements.open(studentId, courseId, request.method(), request.cpf());
     }
 
     /**

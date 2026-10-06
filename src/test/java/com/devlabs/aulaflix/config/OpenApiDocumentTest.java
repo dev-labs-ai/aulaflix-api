@@ -131,6 +131,26 @@ class OpenApiDocumentTest extends IntegrationTest {
                 }""");
     }
 
+    /** A body's id is read whatever its shape, so that one of any shape answers like an unknown id, yet it is a number. */
+    @Test
+    void documentsEveryIdInABodyAsANumber() {
+        String id = """
+                {"type": "integer", "format": "int64"}""";
+        assertThat(mvc.get().uri("/v3/api-docs/bff")).bodyJson().isLenientlyEqualTo("""
+                {
+                  "components": {
+                    "schemas": {
+                      "OrderRequest": {"properties": {"courseId": %s}},
+                      "WaitlistEntryRequest": {"properties": {"courseId": %s}},
+                      "LessonVisitRequest": {"properties": {"lessonId": %s}}
+                    }
+                  }
+                }""".formatted(id, id, id));
+        assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson().isLenientlyEqualTo("""
+                {"components": {"schemas": {"ManualEnrollmentRequest": {"properties": {"courseId": %s}}}}}"""
+                .formatted(id));
+    }
+
     @Test
     void documentsEveryCourseRefusalAsAProblemDetail() {
         assertThat(mvc.get().uri("/v3/api-docs/admin")).bodyJson()

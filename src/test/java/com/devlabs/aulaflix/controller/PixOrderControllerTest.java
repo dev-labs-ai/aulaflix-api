@@ -7,6 +7,7 @@ import static com.devlabs.aulaflix.StudentOrders.codeOf;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -15,10 +16,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -38,6 +41,7 @@ import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.StudentOrders;
 import com.devlabs.aulaflix.service.AccountService;
 import com.jayway.jsonpath.JsonPath;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A Student pays for an On sale Course by Pix on AulaFlix's page (ADR 0006): the first Pix asks for the CPF, which makes
@@ -307,6 +311,14 @@ class PixOrderControllerTest extends IntegrationTest {
         assertThat(asaas.customersCreatedWith(cpf)).isEmpty();
     }
 
+    @ParameterizedTest
+    @MethodSource("idsOfAnyShape")
+    void answersACourseIdOfAnyShapeLikeAnUnknownCourse(Object courseId) {
+        Map<String, Object> body = Map.of("courseId", courseId, "method", "PIX", "cpf", Cpfs.newCpf());
+
+        assertCourseNotForSale(orders.place(JsonMapper.shared().writeValueAsString(body)));
+    }
+
     @Test
     void refusesAStudentAlreadyEnrolled() {
         long course = courses.onSale(newSlug());
@@ -343,6 +355,11 @@ class PixOrderControllerTest extends IntegrationTest {
         assertThat(orders.place("{\"courseId\": %d, \"method\": \"BOLETO\"}".formatted(course)))
                 .hasStatus(HttpStatus.BAD_REQUEST).bodyJson().extractingPath("$.errors")
                 .isEqualTo(List.of(Map.of("field", "method", "code", "invalid-format")));
+    }
+
+    /** Every shape a body's id may come in but a sequence's: none is a Course, or a Lesson, so none answers 400. */
+    static Stream<Object> idsOfAnyShape() {
+        return Stream.of("abc", "", "007", 1.5, 0, -1, new BigInteger("99999999999999999999"));
     }
 
     private void assertInvalidCpf(MvcTestResult placed, String code) {

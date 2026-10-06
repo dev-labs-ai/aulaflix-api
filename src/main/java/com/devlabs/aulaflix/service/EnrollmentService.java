@@ -85,14 +85,15 @@ public class EnrollmentService {
 
     /**
      * Grants an Enrollment by hand to the Student with the email, in a Coming soon or On sale Course, with the note that
-     * is the only record of why. It sends no email: the Admin tells the Student.
+     * is the only record of why. It sends no email: the Admin tells the Student. A Course id of any shape answers like
+     * an unknown one.
      */
     @Transactional
     public AdminEnrollment grantManually(long adminId, ManualEnrollmentRequest request) {
         AccountEntity student = accounts
                 .findLockedByEmailAndRole(AccountInputRules.normalizeEmail(request.email()), Role.STUDENT)
                 .orElseThrow(StudentAccountRequiredException::new);
-        CourseEntity course = courses.findById(request.courseId())
+        CourseEntity course = PathIds.parse(request.courseId()).flatMap(courses::findById)
                 .filter(found -> found.getStatus() != CourseStatus.DRAFT)
                 .orElseThrow(CourseNotEnrollableException::new);
         AccountEntity admin = accounts.findById(adminId).orElseThrow();

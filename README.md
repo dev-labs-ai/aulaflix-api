@@ -161,8 +161,8 @@ state, so the Admin checks it first. Deleting a Lesson, or a Draft, deletes its 
 `POST /v1/admin/enrollments` `{ "email": …, "courseId": …, "note": … }` gives a Student every published Lesson of a
 Course, for example after a chargeback won in the Asaas UI, or as a courtesy. The note, up to 500 characters, is
 required: it is the only record of why. The email must be a Student's: one with no Account, or an Admin's, gets 409
-`student-account-required`, and the person signs up first. A Draft or unknown Course gets 409
-`course-not-enrollable`, and a Student who already has an active Enrollment in the Course gets 409
+`student-account-required`, and the person signs up first. A Draft or unknown Course, a `courseId` of any shape
+included, gets 409 `course-not-enrollable`, and a Student who already has an active Enrollment in the Course gets 409
 `already-enrolled`. A Coming soon Course takes Enrollments too; its Lessons play from the launch. No email is sent:
 tell the Student.
 
@@ -295,8 +295,8 @@ every active Enrollment, each with its `course` `{ id, slug, title, area, icon, 
 comes without `progress` and `resumeLesson` (or `completedLessonIds`) until the launch, and is never highlighted.
 
 The Lesson's page calls `POST /v1/account/lesson-visits` `{ lessonId }` when it mounts (no `GET` records a visit). It
-answers 204, keeps only the last visit per Course, and has the same guards as the marks below; a missing or
-non-numeric `lessonId` gets 400 `invalid-request`. The list puts the most recently visited Course first, and the
+answers 204, keeps only the last visit per Course, and has the same guards as the marks below, a `lessonId` of any
+shape answering like an unknown one; a missing `lessonId` gets 400 `invalid-request`. The list puts the most recently visited Course first, and the
 Courses never visited after them, oldest Enrollment first. `highlightedCourseId` ("Continuar de onde parou") is the
 most recently visited Course with a published Lesson left to complete, and is omitted when none has one. The
 `resumeLesson`, in the outline's current order, is the first that applies: the last Lesson opened, if not completed;
@@ -314,7 +314,8 @@ and a new Enrollment in the Course brings them back as they were.
 A Visitor joins a Coming soon Course's Waitlist with `POST /v1/waitlist-entries` `{ courseId, email }`, which answers
 204 whether or not the email was listed already or has an Account, and sends no email: single opt-in. The email is
 trimmed and lower-cased, so it is listed once however it is typed; a malformed one gets 400 `invalid-request`
-(`invalid-email`). An unknown, Draft or On sale Course gets one answer, 409 `waitlist-closed`. Each client IP gets 10
+(`invalid-email`). An unknown, Draft or On sale Course, a `courseId` of any shape included, gets one answer, 409
+`waitlist-closed`. Each client IP gets 10
 joins by email a day, whatever they answer (`aulaflix.rate-limits.waitlist-entries.*`), and a CAPTCHA past its soft
 limits (above). Admins are refused.
 
@@ -351,7 +352,7 @@ with the Order and its `pix` `{ qrCodePng, copyPasteCode, expiresAt }`, 30 minut
 awaits payment answers it with 200, and makes no new charge. The Student's first Pix needs their CPF, punctuation
 allowed, whose check digits the API checks: it makes the Student's one Asaas customer, with Asaas's notifications off,
 and is never stored nor logged; the Account keeps only the customer's id. An Admin gets 403; a Course that is not On
-sale, `course-not-for-sale`; a Student already enrolled, `already-enrolled`.
+sale, or a `courseId` of any shape, `course-not-for-sale`; a Student already enrolled, `already-enrolled`.
 
 When Asaas is down, slower than `aulaflix.asaas.timeout`, or answers 5xx or 429, the answer is 503
 `payment-unavailable` with `Retry-After` (`aulaflix.asaas.retry-after`); any other 4xx is 502

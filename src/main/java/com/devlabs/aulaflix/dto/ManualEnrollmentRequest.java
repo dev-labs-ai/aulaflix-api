@@ -6,7 +6,10 @@ import jakarta.validation.constraints.Size;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-/** The violation messages are the API's field codes. */
+/**
+ * The violation messages are the API's field codes. The Course's id is read as text, so that an id of any shape answers
+ * like an unknown Course.
+ */
 public record ManualEnrollmentRequest(
         @NotBlank(message = "required")
         @Schema(description = "A Student Account's email, matched trimmed and lower-cased.",
@@ -14,8 +17,8 @@ public record ManualEnrollmentRequest(
         String email,
 
         @NotNull(message = "required")
-        @Schema(example = "3")
-        Long courseId,
+        @Schema(types = "integer", format = "int64", example = "3")
+        String courseId,
 
         @NotBlank(message = "required")
         @Size(max = NOTE_MAX_CHARACTERS, message = "too-long")

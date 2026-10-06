@@ -3,13 +3,16 @@ package com.devlabs.aulaflix.controller;
 import static com.devlabs.aulaflix.AdminCourses.newSlug;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -115,6 +118,12 @@ class WaitlistControllerTest extends IntegrationTest {
         assertWaitlistClosed(waitlists.join(draft, email), WaitlistApi.ENTRIES);
         assertWaitlistClosed(waitlists.join(onSale, email), WaitlistApi.ENTRIES);
         assertWaitlistClosed(waitlists.join(UNKNOWN_COURSE, email), WaitlistApi.ENTRIES);
+    }
+
+    @ParameterizedTest
+    @MethodSource("idsOfAnyShape")
+    void closesTheWaitlistOfACourseIdOfAnyShapeLikeAnUnknownOne(Object courseId) {
+        assertWaitlistClosed(waitlists.join(courseId, StudentApi.newEmail()), WaitlistApi.ENTRIES);
     }
 
     @Test
@@ -298,6 +307,11 @@ class WaitlistControllerTest extends IntegrationTest {
                 JsonPath.read(AdminApi.body(list), "$.items[?(@.id == %d)]".formatted(course));
         assertThat(items).hasSize(1);
         return items.getFirst();
+    }
+
+    /** Every shape a body's id may come in but a sequence's: none is a Course, or a Lesson, so none answers 400. */
+    static Stream<Object> idsOfAnyShape() {
+        return Stream.of("abc", "", "007", 1.5, 0, -1, new BigInteger("99999999999999999999"));
     }
 
     private void assertWaitlistClosed(MvcTestResult result, String path) {

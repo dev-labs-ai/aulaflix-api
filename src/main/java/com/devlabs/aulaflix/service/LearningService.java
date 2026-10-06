@@ -122,7 +122,7 @@ public class LearningService {
      * page calls this when it mounts, and no read ever does. The same Lessons take a visit as take a mark.
      */
     @Transactional
-    public void visit(long studentId, long lessonId) {
+    public void visit(long studentId, String lessonId) {
         LessonEntity lesson = markable(studentId, lessonId);
         lessonVisits.record(studentId, lesson.getCourse().getId(), lesson.getId(), now());
     }

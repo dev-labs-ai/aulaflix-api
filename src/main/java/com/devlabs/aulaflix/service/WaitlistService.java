@@ -54,12 +54,15 @@ public class WaitlistService {
         this.clock = clock;
     }
 
-    /** A Visitor joins with an email, which is checked once normalized, before the Course. */
+    /**
+     * A Visitor joins with an email, which is checked once normalized, before the Course. The Course's id is taken as
+     * the body carries it, so that an id of any shape answers like an unknown one.
+     */
     @Transactional
-    public void joinAsVisitor(long courseId, String email) {
+    public void joinAsVisitor(String courseId, String email) {
         String normalizedEmail = AccountInputRules.normalizeEmail(email);
         AccountInputRules.requireValid(AccountInputRules.emailViolations(normalizedEmail));
-        add(courseId, normalizedEmail);
+        add(PathIds.parse(courseId).orElseThrow(WaitlistClosedException::new), normalizedEmail);
     }
 
     /** The Student joins with the Account's email. */

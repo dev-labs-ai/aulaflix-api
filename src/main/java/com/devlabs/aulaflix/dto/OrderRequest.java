@@ -6,11 +6,14 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.devlabs.aulaflix.domain.PaymentMethod;
 
-/** The violation messages are the API's field codes; the service checks the CPF, and only when it needs one. */
+/**
+ * The violation messages are the API's field codes; the service checks the CPF, and only when it needs one. The
+ * Course's id is read as text, so that an id of any shape answers like an unknown Course.
+ */
 public record OrderRequest(
         @NotNull(message = "required")
-        @Schema(description = "The On sale Course to buy", example = "3")
-        Long courseId,
+        @Schema(description = "The On sale Course to buy", types = "integer", format = "int64", example = "3")
+        String courseId,
 
         @NotNull(message = "required")
         @Schema(description = "How the Order is paid")

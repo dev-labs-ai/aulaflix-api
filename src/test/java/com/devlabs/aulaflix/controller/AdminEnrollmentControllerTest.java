@@ -5,6 +5,7 @@ import static com.devlabs.aulaflix.AdminCourses.newSlug;
 import static com.devlabs.aulaflix.AdminEnrollments.fields;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigInteger;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.Map;
@@ -200,6 +201,15 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
         assertCourseNotEnrollable(enrollments.grant(email, 999_999_999_999L, NOTE));
     }
 
+    @ParameterizedTest
+    @MethodSource("idsOfAnyShape")
+    void answersACourseIdOfAnyShapeLikeAnUnknownCourseOnAGrant(Object courseId) {
+        String email = StudentApi.newEmail();
+        new StudentApi(bff).signedUp(email, PASSWORD);
+
+        assertCourseNotEnrollable(enrollments.grant(Map.of("email", email, "courseId", courseId, "note", NOTE)));
+    }
+
     @Test
     void refusesASecondActiveEnrollmentInTheCourse() {
         long course = courses.onSale(newSlug());
@@ -255,9 +265,7 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
                 Arguments.of("no email", fields("email", null, "courseId", 1, "note", NOTE), "email", "required"),
                 Arguments.of("blank email", fields("email", "  ", "courseId", 1, "note", NOTE), "email", "required"),
                 Arguments.of("no course", fields("email", email, "courseId", null, "note", NOTE), "courseId",
-                        "required"),
-                Arguments.of("course id that is not a number", fields("email", email, "courseId", "3a", "note", NOTE),
-                        "courseId", "invalid-format"));
+                        "required"));
     }
 
     @Test
@@ -583,6 +591,11 @@ class AdminEnrollmentControllerTest extends IntegrationTest {
     private void assertEnrollmentNotFound(MvcTestResult result, String path) {
         assertProblem(result, path, HttpStatus.NOT_FOUND, "enrollment-not-found", "Enrollment not found",
                 "No Enrollment has this id.");
+    }
+
+    /** Every shape a body's id may come in but a sequence's: none is a Course, or a Lesson, so none answers 400. */
+    static Stream<Object> idsOfAnyShape() {
+        return Stream.of("abc", "", "007", 1.5, 0, -1, new BigInteger("99999999999999999999"));
     }
 
     private void assertCourseNotEnrollable(MvcTestResult result) {
