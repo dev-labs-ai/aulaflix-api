@@ -16,8 +16,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.devlabs.aulaflix.exception.AsaasUnavailableException;
 import com.devlabs.aulaflix.service.AsaasGateway;
-import com.devlabs.aulaflix.service.AsaasUnavailableException;
 import com.github.tomakehurst.wiremock.WireMockServer;
 
 /**

@@ -21,6 +21,10 @@ import org.springframework.web.client.RestClientResponseException;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import com.devlabs.aulaflix.exception.AsaasError;
+import com.devlabs.aulaflix.exception.AsaasRefusedException;
+import com.devlabs.aulaflix.exception.AsaasUnavailableException;
+
 /**
  * The Asaas adapter: the few calls the Orders module makes, over Asaas's REST API v3, as a thin {@link RestClient}
  * rather than Asaas's stale SDK. Every failure becomes one of two exceptions: {@link AsaasUnavailableException} when

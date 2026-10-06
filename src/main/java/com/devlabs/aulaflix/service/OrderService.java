@@ -18,6 +18,8 @@ import com.devlabs.aulaflix.dto.Order;
 import com.devlabs.aulaflix.dto.OrderList;
 import com.devlabs.aulaflix.dto.OrderRequest;
 import com.devlabs.aulaflix.dto.PlacedOrder;
+import com.devlabs.aulaflix.exception.AsaasRefusedException;
+import com.devlabs.aulaflix.exception.AsaasUnavailableException;
 import com.devlabs.aulaflix.exception.CourseNotForSaleException;
 import com.devlabs.aulaflix.exception.FieldViolation;
 import com.devlabs.aulaflix.exception.InvalidRequestException;

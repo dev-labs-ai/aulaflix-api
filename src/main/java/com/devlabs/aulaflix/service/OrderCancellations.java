@@ -5,6 +5,8 @@ import org.springframework.stereotype.Component;
 import com.devlabs.aulaflix.domain.OrderStatus;
 import com.devlabs.aulaflix.domain.PaymentMethod;
 import com.devlabs.aulaflix.dto.Order;
+import com.devlabs.aulaflix.exception.AsaasRefusedException;
+import com.devlabs.aulaflix.exception.AsaasUnavailableException;
 import com.devlabs.aulaflix.exception.OrderNotAwaitingPaymentException;
 import com.devlabs.aulaflix.exception.PaymentProviderErrorException;
 import com.devlabs.aulaflix.exception.PaymentUnavailableException;

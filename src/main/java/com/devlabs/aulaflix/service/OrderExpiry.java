@@ -6,6 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.devlabs.aulaflix.exception.AsaasRefusedException;
+import com.devlabs.aulaflix.exception.AsaasUnavailableException;
+
 /**
  * The expiry job: an Order still awaiting payment at its {@code expiresAt} expires, 30 minutes after it was placed for
  * a Pix, and 60 for a card. It re-reads Asaas first, and a payment wins: the Order is paid instead. Otherwise a Pix's

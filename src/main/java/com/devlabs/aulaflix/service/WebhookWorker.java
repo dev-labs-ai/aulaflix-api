@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.devlabs.aulaflix.domain.entity.WebhookEventState;
+import com.devlabs.aulaflix.exception.AsaasRefusedException;
+import com.devlabs.aulaflix.exception.AsaasUnavailableException;
 
 /**
  * The webhook worker: for each event the inbox stored, it re-reads the charge from Asaas with the API's own key, and

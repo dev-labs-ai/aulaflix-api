@@ -1,4 +1,4 @@
-package com.devlabs.aulaflix.service;
+package com.devlabs.aulaflix.exception;
 
 import java.time.Duration;
 
@@ -7,7 +7,7 @@ public final class AsaasUnavailableException extends RuntimeException {
 
     private final Duration retryAfter;
 
-    AsaasUnavailableException(String operation, String reason, Duration retryAfter) {
+    public AsaasUnavailableException(String operation, String reason, Duration retryAfter) {
         super("Asaas failed %s: %s".formatted(operation, reason));
         this.retryAfter = retryAfter;
     }

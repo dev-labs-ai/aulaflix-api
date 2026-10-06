@@ -9,6 +9,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.devlabs.aulaflix.exception.AsaasRefusedException;
+import com.devlabs.aulaflix.exception.AsaasUnavailableException;
+
 /**
  * The reconciliation job, so that no paying Student waits on a lost webhook: it re-reads from Asaas the charge of every
  * Order that has awaited payment longer than the delay, or a card Order's Checkout's charges, and applies what the

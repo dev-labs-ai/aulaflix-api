@@ -1,4 +1,4 @@
-package com.devlabs.aulaflix.service;
+package com.devlabs.aulaflix.exception;
 
 import java.util.List;
 import java.util.Locale;
@@ -12,13 +12,13 @@ public final class AsaasRefusedException extends RuntimeException {
 
     private final List<AsaasError> errors;
 
-    AsaasRefusedException(String operation, int status, List<AsaasError> errors) {
+    public AsaasRefusedException(String operation, int status, List<AsaasError> errors) {
         super("Asaas refused %s: HTTP %d %s".formatted(operation, status,
                 errors.stream().map(AsaasError::code).toList()));
         this.errors = List.copyOf(errors);
     }
 
-    AsaasRefusedException(String operation, String reason) {
+    public AsaasRefusedException(String operation, String reason) {
         super("Asaas answered %s with %s".formatted(operation, reason));
         this.errors = List.of();
     }

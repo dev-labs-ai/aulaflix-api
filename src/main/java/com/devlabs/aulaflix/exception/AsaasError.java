@@ -1,4 +1,4 @@
-package com.devlabs.aulaflix.service;
+package com.devlabs.aulaflix.exception;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
