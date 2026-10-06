@@ -78,7 +78,7 @@ public class OrderReconciliation {
             }
             payments.applyReread(asaas.charge(due.chargeId()));
         } catch (AsaasRefusedException refusal) {
-            log.error("Could not reconcile Order {}: {}", due.code(), refusal.getMessage());
+            log.error("Could not reconcile Order {}: {}", due.code(), refusal.getMessage(), refusal);
         }
     }
 
@@ -87,7 +87,8 @@ public class OrderReconciliation {
         try {
             payments.applyReread(asaas.charge(due.chargeId()));
         } catch (AsaasRefusedException refusal) {
-            log.error("Could not re-read the charge of paid Order {}: {}", due.code(), refusal.getMessage());
+            log.error("Could not re-read the charge of paid Order {}: {}", due.code(), refusal.getMessage(),
+                    refusal);
         }
         upkeep.chargeChecked(due, clock.instant().truncatedTo(ChronoUnit.MICROS));
     }
@@ -99,7 +100,7 @@ public class OrderReconciliation {
                 refunds.done(due);
             }
         } catch (AsaasRefusedException refusal) {
-            log.error("Could not follow the refund of Order {}: {}", due.code(), refusal.getMessage());
+            log.error("Could not follow the refund of Order {}: {}", due.code(), refusal.getMessage(), refusal);
         }
     }
 
@@ -109,7 +110,7 @@ public class OrderReconciliation {
             log.info("Deleted the charges left at Asaas under cancelled Order {}", due.code());
         } catch (AsaasRefusedException refusal) {
             log.error("Gave up on the charges left at Asaas under cancelled Order {}: {}", due.code(),
-                    refusal.getMessage());
+                    refusal.getMessage(), refusal);
         }
         placements.chargesDeleted(due.id());
     }

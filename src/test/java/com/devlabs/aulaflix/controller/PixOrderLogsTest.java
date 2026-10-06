@@ -24,6 +24,7 @@ import com.devlabs.aulaflix.IntegrationTest;
 import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.StudentOrders;
+import com.devlabs.aulaflix.exception.PaymentProviderErrorException;
 import com.devlabs.aulaflix.service.AccountService;
 
 /**
@@ -109,7 +110,8 @@ class PixOrderLogsTest extends IntegrationTest {
 
         assertThat(output.getAll()).containsPattern(
                 "ERROR .*Refused POST /v1/account/orders: payment-provider-error; Order [2-9A-Z]{8} cancelled; "
-                        + "Asaas refused creating a Pix charge: HTTP 400 \\[invalid_billingType]");
+                        + "Asaas refused creating a Pix charge: HTTP 400 \\[invalid_billingType]\\R+"
+                        + PaymentProviderErrorException.class.getName() + ": ");
     }
 
     @Test

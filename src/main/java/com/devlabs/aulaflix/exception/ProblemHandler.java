@@ -357,7 +357,7 @@ public class ProblemHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(PaymentProviderErrorException.class)
     ResponseEntity<Object> paymentProviderError(PaymentProviderErrorException refusal, HttpServletRequest request) {
         log.error("Refused {} {}: payment-provider-error; {}", request.getMethod(), request.getRequestURI(),
-                refusal.getMessage());
+                refusal.getMessage(), refusal);
         return respond(new Refusal(HttpStatus.BAD_GATEWAY, "payment-provider-error", "Payment provider error",
                 "The payment provider refused the payment. It has been logged."), new HttpHeaders(), Map.of());
     }

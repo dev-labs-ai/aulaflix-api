@@ -46,7 +46,7 @@ public class WebhookWorker {
                 log.warn("Left webhook event {} and the rest pending: {}", event.id(), failure.getMessage());
                 return;
             } catch (AsaasRefusedException refusal) {
-                log.error("Webhook event {} is unprocessable: {}", event.id(), refusal.getMessage());
+                log.error("Webhook event {} is unprocessable: {}", event.id(), refusal.getMessage(), refusal);
                 payments.settle(event.id(), WebhookEventState.UNPROCESSABLE);
             }
         }

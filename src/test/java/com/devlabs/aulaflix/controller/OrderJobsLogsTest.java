@@ -28,6 +28,7 @@ import com.devlabs.aulaflix.StoredVideos;
 import com.devlabs.aulaflix.StudentApi;
 import com.devlabs.aulaflix.StudentOrders;
 import com.devlabs.aulaflix.service.AccountService;
+import com.devlabs.aulaflix.service.AsaasRefusedException;
 import com.devlabs.aulaflix.service.OrderExpiry;
 import com.devlabs.aulaflix.service.OrderReconciliation;
 
@@ -127,7 +128,8 @@ class OrderJobsLogsTest extends IntegrationTest {
                 .containsPattern("WARN .*Left Order " + unreachable
                         + " and the rest to expire on the next run: Asaas failed reading a charge: HTTP 500")
                 .containsPattern("ERROR .*Expiring Order " + refused
-                        + " without its charge: Asaas refused reading a charge: HTTP 404 \\[invalid_payment]");
+                        + " without its charge: Asaas refused reading a charge: HTTP 404 \\[invalid_payment]\\R+"
+                        + AsaasRefusedException.class.getName() + ": Asaas refused reading a charge");
     }
 
     @Test
@@ -142,7 +144,8 @@ class OrderJobsLogsTest extends IntegrationTest {
         reconciliation.reconcile();
 
         assertThat(output.getAll()).containsPattern("ERROR .*Could not re-read the charge of paid Order " + paid
-                + ": Asaas refused reading a charge: HTTP 404 \\[invalid_payment]");
+                + ": Asaas refused reading a charge: HTTP 404 \\[invalid_payment]\\R+"
+                + AsaasRefusedException.class.getName() + ": ");
     }
 
     private long otherCourse() {

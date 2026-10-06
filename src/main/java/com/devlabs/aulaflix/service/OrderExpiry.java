@@ -64,7 +64,7 @@ public class OrderExpiry {
                 return;
             }
         } catch (AsaasRefusedException refusal) {
-            log.error("Expiring Order {} without its charge: {}", due.code(), refusal.getMessage());
+            log.error("Expiring Order {} without its charge: {}", due.code(), refusal.getMessage(), refusal);
         }
         upkeep.expire(due);
     }
