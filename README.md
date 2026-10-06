@@ -380,6 +380,12 @@ arrived, by Asaas's event id, and answered 200 with an empty body at once: a rep
 API does not handle is stored as `IGNORED`, and a body that is no event is stored as `UNPROCESSABLE`, with a `WARN`. A
 body over 256 KB gets 413 `content-too-large`.
 
+Locally the sandbox cannot reach the API, so payments arrive through reconciliation (below), or through
+`scripts/post-asaas-webhook.sh <event> <chargeId>` (e.g. `PAYMENT_RECEIVED pay_080225913252`, or `CHECKOUT_EXPIRED
+<checkoutId>`), which posts an event naming the charge to the local API, `http://localhost:8080` unless
+`AULAFLIX_API_URL` says otherwise, with the token from `secrets/aulaflix.asaas.webhook-token`. Pay the charge in the
+sandbox first: the worker acts on its re-read of the charge, never on the event.
+
 The webhook worker runs `aulaflix.asaas.webhook-interval` after the end of its run before (5 s), never in admin mode.
 For each pending `PAYMENT_CONFIRMED` or `PAYMENT_RECEIVED`, it re-reads the charge from Asaas with the API's key and
 acts on that answer, never on the event's body. The charge must be the Order's, under its code as the external
