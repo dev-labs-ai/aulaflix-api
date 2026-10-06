@@ -1,8 +1,5 @@
 package com.devlabs.aulaflix.service;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.Set;
@@ -12,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.devlabs.aulaflix.domain.entity.WebhookEventState;
-import com.devlabs.aulaflix.exception.WebhookBodyTooLargeException;
 import com.devlabs.aulaflix.repository.WebhookEventRepository;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -27,9 +23,6 @@ import tools.jackson.databind.json.JsonMapper;
 public class AsaasWebhookInbox {
 
     private static final Logger log = LoggerFactory.getLogger(AsaasWebhookInbox.class);
-
-    /** 256 KB: the edge's own limit, so that a body the edge lets through is never refused here. */
-    private static final int MAX_BODY_BYTES = 256 * 1024;
 
     /**
      * The events whose charge the worker re-reads: a payment, a card's risk analysis, and money going back by a
@@ -58,12 +51,11 @@ public class AsaasWebhookInbox {
     }
 
     /**
-     * Reads the body, up to {@link #MAX_BODY_BYTES}, and stores it with the event's id and type, and the charge it
-     * names when it is an event the worker handles. A body that is not an event is stored too, without an id, and
-     * logged: something is sending Asaas's token what Asaas never sends.
+     * Stores the body, as it arrived, with the event's id and type, and the charge it names when it is an event the
+     * worker handles. A body that is not an event is stored too, without an id, and logged: something is sending
+     * Asaas's token what Asaas never sends.
      */
-    public void receive(InputStream body) {
-        byte[] raw = readAtMost(body);
+    public void receive(byte[] raw) {
         Delivery delivery = read(raw);
         int stored = repository.insertUnlessReceived(delivery.eventId(), delivery.eventType(), delivery.chargeId(),
                 delivery.checkoutId(), raw, clock.instant().truncatedTo(ChronoUnit.MICROS), delivery.state().name());
@@ -75,18 +67,6 @@ public class AsaasWebhookInbox {
         } else {
             log.info("Stored Asaas webhook event {} ({}) as {}", delivery.eventId(), delivery.eventType(),
                     delivery.state());
-        }
-    }
-
-    private static byte[] readAtMost(InputStream body) {
-        try {
-            byte[] raw = body.readNBytes(MAX_BODY_BYTES + 1);
-            if (raw.length > MAX_BODY_BYTES) {
-                throw new WebhookBodyTooLargeException();
-            }
-            return raw;
-        } catch (IOException failure) {
-            throw new UncheckedIOException("Reading an Asaas webhook's body failed", failure);
         }
     }
 

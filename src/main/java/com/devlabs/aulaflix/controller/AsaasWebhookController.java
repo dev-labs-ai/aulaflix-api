@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.devlabs.aulaflix.config.OpenApiConfiguration;
+import com.devlabs.aulaflix.exception.WebhookBodyTooLargeException;
 import com.devlabs.aulaflix.service.AsaasWebhookInbox;
 
 /**
@@ -29,13 +30,19 @@ import com.devlabs.aulaflix.service.AsaasWebhookInbox;
 @Tag(name = "Webhooks", description = "Asaas's payment events")
 public class AsaasWebhookController {
 
+    /** 256 KB: the edge's own limit, so that a body the edge lets through is never refused here. */
+    private static final int MAX_BODY_BYTES = 256 * 1024;
+
     private final AsaasWebhookInbox inbox;
 
     public AsaasWebhookController(AsaasWebhookInbox inbox) {
         this.inbox = inbox;
     }
 
-    /** The body is read as it arrived, never bound: whatever it holds is stored, and Asaas gets its 200. */
+    /**
+     * The body is read as it arrived, never bound, up to {@link #MAX_BODY_BYTES}: whatever it holds is stored, and
+     * Asaas gets its 200.
+     */
     @PostMapping
     @Operation(summary = "Receive an Asaas event", description = """
             Stores the event as it arrived and answers at once; a worker then re-reads the charge it names from \
@@ -52,7 +59,11 @@ public class AsaasWebhookController {
     @ApiResponse(responseCode = "403", description = "`invalid-webhook-token`: the token is missing or wrong")
     @ApiResponse(responseCode = "413", description = "`content-too-large`: the body is over 256 KB")
     public ResponseEntity<Void> receive(HttpServletRequest request) throws IOException {
-        inbox.receive(request.getInputStream());
+        byte[] body = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
+        if (body.length > MAX_BODY_BYTES) {
+            throw new WebhookBodyTooLargeException();
+        }
+        inbox.receive(body);
         return ResponseEntity.ok().build();
     }
 }
