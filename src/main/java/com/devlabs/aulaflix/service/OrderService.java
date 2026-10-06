@@ -106,8 +106,8 @@ public class OrderService {
         try {
             expiry.expire(lapsed.due());
         } catch (AsaasUnavailableException failure) {
-            throw new PaymentUnavailableException("Order %s left awaiting payment; %s".formatted(
-                    lapsed.order().code(), failure.getMessage()), failure.retryAfter());
+            throw new PaymentUnavailableException("Order %s left awaiting payment".formatted(lapsed.order().code()),
+                    failure);
         }
         return placements.open(studentId, courseId, request.method(), request.cpf());
     }
@@ -150,13 +150,15 @@ public class OrderService {
             return placements.recordCheckout(placement.orderId(), checkout);
         } catch (AsaasUnavailableException failure) {
             placements.cancel(placement.orderId(), false);
-            throw new PaymentUnavailableException("Order %s cancelled; %s".formatted(placement.code(),
-                    failure.getMessage()), failure.retryAfter());
+            throw new PaymentUnavailableException(cancelled(placement.code()), failure);
         } catch (AsaasRefusedException refusal) {
             placements.cancel(placement.orderId(), false);
-            throw new PaymentProviderErrorException("Order %s cancelled; %s".formatted(placement.code(),
-                    refusal.getMessage()));
+            throw new PaymentProviderErrorException(cancelled(placement.code()), refusal);
         }
+    }
+
+    private static String cancelled(String code) {
+        return "Order %s cancelled".formatted(code);
     }
 
     private static String description(String code, String courseTitle) {
@@ -179,15 +181,13 @@ public class OrderService {
                     asaas.pixQrCode(charging.chargeId));
         } catch (AsaasUnavailableException failure) {
             cancel(placement, charging);
-            throw new PaymentUnavailableException("Order %s cancelled; %s".formatted(placement.code(),
-                    failure.getMessage()), failure.retryAfter());
+            throw new PaymentUnavailableException(cancelled(placement.code()), failure);
         } catch (AsaasRefusedException refusal) {
             cancel(placement, charging);
             if (!charging.started && refusal.refusedTheCpf()) {
                 throw new InvalidRequestException(List.of(new FieldViolation("cpf", "invalid-cpf")));
             }
-            throw new PaymentProviderErrorException("Order %s cancelled; %s".formatted(placement.code(),
-                    refusal.getMessage()));
+            throw new PaymentProviderErrorException(cancelled(placement.code()), refusal);
         }
     }
 

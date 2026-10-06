@@ -10,9 +10,10 @@ public class PaymentUnavailableException extends RuntimeException {
 
     private final Duration retryAfter;
 
-    public PaymentUnavailableException(String reason, Duration retryAfter) {
-        super(reason);
-        this.retryAfter = retryAfter;
+    /** What became of the Order, such as "Order K7M2Q9XA cancelled", and the failure, whose wait it keeps. */
+    public PaymentUnavailableException(String outcome, AsaasUnavailableException failure) {
+        super(outcome + "; " + failure.getMessage(), failure);
+        this.retryAfter = failure.retryAfter();
     }
 
     public Duration retryAfter() {

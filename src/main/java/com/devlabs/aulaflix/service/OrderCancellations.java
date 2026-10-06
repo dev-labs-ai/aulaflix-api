@@ -66,14 +66,13 @@ class OrderCancellations {
      * found the payment, since cancelling leaves a paid Order as it is.
      */
     private Order withdraw(CancellableOrders.Target target) {
+        String leftAwaiting = "Order %s left awaiting payment".formatted(target.code());
         try {
             stopAtAsaas(target);
         } catch (AsaasUnavailableException failure) {
-            throw new PaymentUnavailableException("Order %s left awaiting payment; %s".formatted(target.code(),
-                    failure.getMessage()), failure.retryAfter());
+            throw new PaymentUnavailableException(leftAwaiting, failure);
         } catch (AsaasRefusedException refusal) {
-            throw new PaymentProviderErrorException("Order %s left awaiting payment; %s".formatted(target.code(),
-                    refusal.getMessage()));
+            throw new PaymentProviderErrorException(leftAwaiting, refusal);
         }
         return orders.cancel(target);
     }

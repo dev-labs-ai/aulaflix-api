@@ -6,7 +6,8 @@ package com.devlabs.aulaflix.exception;
  */
 public class PaymentProviderErrorException extends RuntimeException {
 
-    public PaymentProviderErrorException(String reason) {
-        super(reason);
+    /** What became of the Order, such as "Order K7M2Q9XA cancelled", and the refusal. */
+    public PaymentProviderErrorException(String outcome, AsaasRefusedException refusal) {
+        super(outcome + "; " + refusal.getMessage(), refusal);
     }
 }

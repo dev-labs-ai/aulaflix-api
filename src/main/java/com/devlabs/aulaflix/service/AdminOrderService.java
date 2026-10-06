@@ -18,7 +18,6 @@ import com.devlabs.aulaflix.exception.FieldViolation;
 import com.devlabs.aulaflix.exception.InvalidRequestException;
 import com.devlabs.aulaflix.exception.OrderNotFoundException;
 import com.devlabs.aulaflix.exception.PaymentUnavailableException;
-import com.devlabs.aulaflix.exception.ProviderError;
 import com.devlabs.aulaflix.exception.RefundRefusedException;
 import com.devlabs.aulaflix.repository.OrderRepository;
 
@@ -88,12 +87,9 @@ public class AdminOrderService {
                 asaas.refundCharge(start.chargeId());
             }
         } catch (AsaasUnavailableException failure) {
-            throw new PaymentUnavailableException("Order %s not refunded; %s".formatted(code, failure.getMessage()),
-                    failure.retryAfter());
+            throw new PaymentUnavailableException("Order %s not refunded".formatted(code), failure);
         } catch (AsaasRefusedException refusal) {
-            throw new RefundRefusedException(code, refusal.errors().stream()
-                    .map(error -> new ProviderError(error.code(), error.description()))
-                    .toList());
+            throw new RefundRefusedException(code, refusal);
         }
         return refunds.requested(adminId, start.orderId(), start.studentId());
     }
