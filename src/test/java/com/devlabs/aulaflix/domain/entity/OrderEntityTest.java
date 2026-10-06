@@ -2,6 +2,7 @@ package com.devlabs.aulaflix.domain.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.function.Consumer;
@@ -62,6 +63,30 @@ class OrderEntityTest {
         assertThat(order.refunded(LATER.plusSeconds(60))).isTrue();
         assertThat(order.getStatus()).isEqualTo(OrderStatus.REFUNDED);
         assertThat(order.getRefundedAt()).isEqualTo(LATER.plusSeconds(60));
+    }
+
+    @Test
+    void matchesAChargeUnderItsCodeForItsAmount() {
+        OrderEntity order = orderIn(OrderStatus.AWAITING_PAYMENT);
+
+        assertThat(order.matchesCharge("K7M2Q9XA", null, new BigDecimal("447.30"))).isTrue();
+        assertThat(order.matchesCharge("K7M2Q9XA", null, new BigDecimal("447.3"))).isTrue();
+        assertThat(order.matchesCharge("K7M2Q9XA", null, new BigDecimal("447.29"))).isFalse();
+        assertThat(order.matchesCharge("K7M2Q9XB", null, new BigDecimal("447.30"))).isFalse();
+    }
+
+    /** A Checkout's charges may come without its reference: the Checkout they were paid on names the Order then. */
+    @Test
+    void matchesAChargeWithoutAReferenceOnlyOnItsCheckout() {
+        OrderEntity order = orderIn(OrderStatus.AWAITING_PAYMENT);
+        BigDecimal amount = new BigDecimal("447.30");
+
+        assertThat(order.matchesCharge(null, "chk_1", amount)).isFalse();
+        order.recordCheckout("chk_1", "https://asaas.com/checkoutSession/show?id=chk_1");
+        assertThat(order.matchesCharge(null, "chk_1", amount)).isTrue();
+        assertThat(order.matchesCharge(null, "chk_2", amount)).isFalse();
+        assertThat(order.matchesCharge(null, null, amount)).isFalse();
+        assertThat(order.matchesCharge("K7M2Q9XB", "chk_1", amount)).isFalse();
     }
 
     @Test

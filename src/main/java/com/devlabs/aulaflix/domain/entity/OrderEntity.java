@@ -1,5 +1,6 @@
 package com.devlabs.aulaflix.domain.entity;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Set;
@@ -153,6 +154,17 @@ public class OrderEntity {
         order.createdAt = createdAt;
         order.expiresAt = expiresAt;
         return order;
+    }
+
+    /**
+     * Whether an Asaas charge is this Order's to act on: made under the Order's code, its external reference, or, as
+     * Asaas may not copy a Checkout's reference onto the charges its payer makes, under none, on the Order's Checkout;
+     * and for the Order's amount, the sale's value in reais.
+     */
+    public boolean matchesCharge(String externalReference, String checkoutId, BigDecimal value) {
+        boolean underTheOrder = externalReference != null ? code.equals(externalReference)
+                : asaasCheckoutId != null && asaasCheckoutId.equals(checkoutId);
+        return underTheOrder && BigDecimal.valueOf(amountCents, 2).compareTo(value) == 0;
     }
 
     /** The Pix charge Asaas made under the Order's code, and the QR code that pays it. */

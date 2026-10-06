@@ -1,6 +1,5 @@
 package com.devlabs.aulaflix.service;
 
-import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -111,8 +110,7 @@ class OrderPayments {
             return WebhookEventState.IGNORED;
         }
         OrderEntity order = found.get();
-        if (!isUnder(order, charge)
-                || BigDecimal.valueOf(order.getAmountCents(), 2).compareTo(charge.value()) != 0) {
+        if (!order.matchesCharge(charge.externalReference(), charge.checkoutSession(), charge.value())) {
             log.warn("Asaas charge {} does not match Order {}: it is under another reference or for another amount",
                     charge.id(), order.getCode());
             return WebhookEventState.UNPROCESSABLE;
@@ -161,17 +159,6 @@ class OrderPayments {
         }
         accounts.findLockedById(byCheckout.get()).orElseThrow();
         return orders.findWithPartiesByCheckoutId(charge.checkoutSession());
-    }
-
-    /**
-     * Whether the charge was made under the Order's code; or, as Asaas may not copy a Checkout's external reference
-     * onto the charges its payer makes, under none, on the Order's Checkout.
-     */
-    private static boolean isUnder(OrderEntity order, AsaasGateway.Charge charge) {
-        if (charge.externalReference() != null) {
-            return order.getCode().equals(charge.externalReference());
-        }
-        return order.getAsaasCheckoutId() != null && order.getAsaasCheckoutId().equals(charge.checkoutSession());
     }
 
     /**
