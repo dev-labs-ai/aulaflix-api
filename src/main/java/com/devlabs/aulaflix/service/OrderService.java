@@ -48,7 +48,7 @@ public class OrderService {
             OrderStatus.REFUNDING, OrderStatus.REFUNDED, OrderStatus.REVERSED);
 
     private final OrderPlacements placements;
-    private final OrderCancellations cancellations;
+    private final OrderCancellation cancellation;
     private final OrderExpiry expiry;
     private final OrderRepository repository;
     private final AsaasGateway asaas;
@@ -57,11 +57,11 @@ public class OrderService {
     private final CheckoutReturns returns;
     private final Clock clock;
 
-    public OrderService(OrderPlacements placements, OrderCancellations cancellations, OrderExpiry expiry,
+    public OrderService(OrderPlacements placements, OrderCancellation cancellation, OrderExpiry expiry,
                         OrderRepository repository, AsaasGateway asaas, RateLimiter limiter, CheckoutLimits limits,
                         CheckoutReturns returns, Clock clock) {
         this.placements = placements;
-        this.cancellations = cancellations;
+        this.cancellation = cancellation;
         this.expiry = expiry;
         this.repository = repository;
         this.asaas = asaas;
@@ -85,7 +85,7 @@ public class OrderService {
         OrderPlacements.Placement placement = openExpiringALapsedOrder(studentId, courseId, request);
         if (placement instanceof OrderPlacements.Placement.Existing existing
                 && existing.order().method() != request.method()) {
-            cancellations.replace(studentId, existing.order().code());
+            cancellation.replace(studentId, existing.order().code());
             placement = placements.open(studentId, courseId, request.method(), request.cpf());
         }
         return switch (placement) {
@@ -119,7 +119,7 @@ public class OrderService {
      * fails, the Order stays awaiting payment.
      */
     public Order cancel(long studentId, String code) {
-        return cancellations.cancel(studentId, code);
+        return cancellation.cancel(studentId, code);
     }
 
     /** The Student's Orders, newest first, but those never paid. */

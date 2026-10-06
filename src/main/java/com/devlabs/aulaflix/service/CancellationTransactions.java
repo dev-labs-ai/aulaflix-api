@@ -19,14 +19,14 @@ import com.devlabs.aulaflix.repository.OrderRepository;
  * last of them left it.
  */
 @Component
-class CancellableOrders {
+class CancellationTransactions {
 
-    private static final Logger log = LoggerFactory.getLogger(CancellableOrders.class);
+    private static final Logger log = LoggerFactory.getLogger(CancellationTransactions.class);
 
     private final OrderRepository orders;
     private final AccountRepository accounts;
 
-    CancellableOrders(OrderRepository orders, AccountRepository accounts) {
+    CancellationTransactions(OrderRepository orders, AccountRepository accounts) {
         this.orders = orders;
         this.accounts = accounts;
     }

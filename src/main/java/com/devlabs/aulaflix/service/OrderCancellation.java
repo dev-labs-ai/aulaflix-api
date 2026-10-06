@@ -16,19 +16,20 @@ import com.devlabs.aulaflix.exception.PaymentUnavailableException;
  * Asaas, its Pix charge deleted or its Checkout cancelled, so that nothing is left there to pay, and only then the
  * Order. When Asaas fails, the Order stays awaiting payment. When Asaas refuses, the charge or the Checkout's charges
  * are re-read, and a payment wins: Asaas deletes no paid charge, and the Student may have paid before the webhook came.
- * A payment that lands after the cancellation still wins too, since it pays a cancelled Order.
+ * A payment that lands after the cancellation still wins too, since it pays a cancelled Order. This is the
+ * orchestration, which calls Asaas; {@link CancellationTransactions} holds the short transactions around it.
  */
 @Component
-class OrderCancellations {
+class OrderCancellation {
 
-    private final CancellableOrders orders;
+    private final CancellationTransactions transactions;
     private final AsaasGateway asaas;
     private final OrderPayments payments;
     private final CheckoutRereads checkouts;
 
-    OrderCancellations(CancellableOrders orders, AsaasGateway asaas, OrderPayments payments,
+    OrderCancellation(CancellationTransactions transactions, AsaasGateway asaas, OrderPayments payments,
                        CheckoutRereads checkouts) {
-        this.orders = orders;
+        this.transactions = transactions;
         this.asaas = asaas;
         this.payments = payments;
         this.checkouts = checkouts;
@@ -36,7 +37,7 @@ class OrderCancellations {
 
     /** Cancels the Student's Order, or answers it again once cancelled; any other state than awaiting is refused. */
     Order cancel(long studentId, String code) {
-        CancellableOrders.Target target = orders.find(studentId, code);
+        CancellationTransactions.Target target = transactions.find(studentId, code);
         if (target.status() == OrderStatus.CANCELLED) {
             return target.order();
         }
@@ -55,7 +56,7 @@ class OrderCancellations {
      * on meanwhile is left as it is, and so is one Asaas shows paid, which the new placement then finds.
      */
     void replace(long studentId, String code) {
-        CancellableOrders.Target target = orders.find(studentId, code);
+        CancellationTransactions.Target target = transactions.find(studentId, code);
         if (target.status() == OrderStatus.AWAITING_PAYMENT) {
             withdraw(target);
         }
@@ -65,7 +66,7 @@ class OrderCancellations {
      * Stops at Asaas whatever could pay the Order, then cancels it, and answers it as it is now: paid, when a re-read
      * found the payment, since cancelling leaves a paid Order as it is.
      */
-    private Order withdraw(CancellableOrders.Target target) {
+    private Order withdraw(CancellationTransactions.Target target) {
         String leftAwaiting = "Order %s left awaiting payment".formatted(target.code());
         try {
             stopAtAsaas(target);
@@ -74,7 +75,7 @@ class OrderCancellations {
         } catch (AsaasRefusedException refusal) {
             throw new PaymentProviderErrorException(leftAwaiting, refusal);
         }
-        return orders.cancel(target);
+        return transactions.cancel(target);
     }
 
     /**
@@ -82,7 +83,7 @@ class OrderCancellations {
      * waiting for Asaas: a Checkout made then has a link no one got, and a charge is left to reconciliation, which
      * searches the Order's code.
      */
-    private void stopAtAsaas(CancellableOrders.Target target) {
+    private void stopAtAsaas(CancellationTransactions.Target target) {
         if (target.method() == PaymentMethod.CARD) {
             if (target.checkoutId() != null) {
                 cancelCheckout(target.checkoutId());
